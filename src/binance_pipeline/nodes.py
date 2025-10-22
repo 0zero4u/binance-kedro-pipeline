@@ -69,3 +69,35 @@ def generate_bar_features(df: pd.DataFrame) -> pd.DataFrame:
     df.replace([np.inf, -np.inf], np.nan, inplace=True)
     df.dropna(inplace=True)
     return df
+
+# --- Multi-Timeframe Merge Node ---
+def merge_multi_timeframe_features(base_features: pd.DataFrame, **other_features: pd.DataFrame) -> pd.DataFrame:
+    """
+    Merges features from multiple timeframes onto a base (highest frequency) dataframe.
+    
+    Args:
+        base_features: DataFrame with the highest frequency features (e.g., 100ms).
+        **other_features: Keyword arguments where key is a descriptive name and value
+                          is a DataFrame with lower frequency features.
+    Returns:
+        A single DataFrame with all features merged.
+    """
+    log.info(f"Starting multi-timeframe feature merge onto base shape {base_features.shape}.")
+    merged_df = base_features.sort_values('datetime').copy()
+
+    for tf_name, df_tf in other_features.items():
+        # Extract timeframe from key like 'features_3s' -> '_3s'
+        suffix = f"_{tf_name.split('_')[1]}"
+        df_to_merge = df_tf.sort_values('datetime').copy()
+        
+        # Select only feature columns to avoid duplicating ohlc, volume etc.
+        feature_cols = [c for c in df_to_merge.columns if c not in ['datetime', 'open', 'high', 'low', 'close', 'volume', 'mid_price', 'spread']]
+        cols_to_rename = {col: col + suffix for col in feature_cols}
+        df_to_merge = df_to_merge[['datetime'] + feature_cols].rename(columns=cols_to_rename)
+        
+        merged_df = pd.merge_asof(merged_df, df_to_merge, on='datetime', direction='backward')
+    
+    merged_df.dropna(inplace=True)
+    log.info(f"Multi-timeframe merge complete. Final shape: {merged_df.shape}")
+    return merged_df
+                                    
