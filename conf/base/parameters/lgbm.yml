@@ -1,4 +1,3 @@
-
 labeling_params:
   # --- Method control and Fixed Percentage Barrier Parameters ---
   # Use 'fixed_pct' for fee-aware barriers or 'volatility' for the original dynamic method.
@@ -12,7 +11,7 @@ labeling_params:
   # --- Original Volatility-Based Parameters (can be used by setting method: 'volatility') ---
   vol_lookback: 50
   vol_multiplier: 2.0
-  time_barrier_periods: 30
+  time_barrier_periods: 450
   profit_take_mult: 1.5
   stop_loss_mult: 1.5
 
@@ -28,3 +27,4 @@ lgbm_params:
   colsample_bytree: 0.7
   reg_alpha: 0.1
   reg_lambda: 0.1
+  
