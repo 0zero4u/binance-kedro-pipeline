@@ -1,1 +1,19 @@
+toml
+[tool.kedro]
+package_name = "binance_pipeline"
+project_name = "Binance Pipeline"
+project_version = "0.18.14"
 
+[tool.isort]
+profile = "black"
+
+[tool.pytest.ini_options]
+addopts = """
+--cov-report term-missing \
+--cov src/binance_pipeline -ra"""
+
+[tool.coverage.paths]
+source = ["src", "*/site-packages"]
+
+[tool.coverage.run]
+source = ["binance_pipeline"]
