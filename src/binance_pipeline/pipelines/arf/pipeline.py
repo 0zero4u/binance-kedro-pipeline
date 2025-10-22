@@ -14,7 +14,7 @@ def create_pipeline(**kwargs) -> Pipeline:
         [
             node(
                 func=generate_river_features,
-                inputs="resampled_data",
+                inputs="features_data",
                 outputs="features_data_arf",
                 name="generate_arf_features_node",
             ),
@@ -49,4 +49,5 @@ def create_pipeline(**kwargs) -> Pipeline:
                 name="train_arf_model_node",
             ),
         ]
-  )
+    )
+    
