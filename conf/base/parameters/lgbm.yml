@@ -6,8 +6,8 @@ labeling_params:
   fee_pct: 0.00025             # 0.025% per trade
 
   # --- UPDATED: We now define the GROSS profit target ---
-  profit_take_gross_pct: 0.0007 # Trigger when price moves up by 0.06% BEFORE fees
-  stop_loss_gross_pct: 0.0002   # Trigger when price moves down by 0.02% BEFORE fees
+  profit_take_gross_pct: 0.0006 # Trigger when price moves up by 0.06% BEFORE fees
+  stop_loss_gross_pct: 0.0001   # Trigger when price moves down by 0.02% BEFORE fees
 
   # --- Original Volatility-Based Parameters (can be used by setting method: 'volatility') ---
   vol_lookback: 50
