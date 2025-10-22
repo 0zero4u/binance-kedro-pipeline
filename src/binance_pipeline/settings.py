@@ -1,5 +1,7 @@
+
 from binance_pipeline.pipeline import create_pipeline as create_data_engineering_pipeline
 from binance_pipeline.pipelines.lgbm.pipeline import create_pipeline as create_lgbm_pipeline
+from binance_pipeline.pipelines.arf.pipeline import create_pipeline as create_arf_pipeline
 
 # Class that manages Kedro's library components.
 # from kedro.framework.context import KedroContext
@@ -21,6 +23,9 @@ PIPELINES = {
     # The data engineering pipeline, which you can also run by name
     "de": create_data_engineering_pipeline(),
 
-    # The modeling pipeline, which you can run by name
+    # The original modeling pipeline
     "lgbm": create_lgbm_pipeline(),
+
+    # The new ARF modeling pipeline
+    "arf": create_arf_pipeline(),
 }
