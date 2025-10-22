@@ -29,3 +29,36 @@ lgbm_model:
   type: pickle.PickleDataSet
   filepath: "data/06_models/lgbm_price_movement_model.pkl"
   layer: models
+
+# ----------------------------------------------------------------
+# New Datasets for the ARF Pipeline
+# ----------------------------------------------------------------
+features_data_arf:
+  type: pandas.ParquetDataSet
+  filepath: data/03_primary/features_data_arf.parquet
+  layer: primary
+
+labeled_data_arf:
+  type: pandas.ParquetDataSet
+  filepath: data/05_model_input/labeled_data_arf.parquet
+  layer: model_input
+
+unbiased_labeled_data_arf:
+  type: pandas.ParquetDataSet
+  filepath: data/05_model_input/unbiased_labeled_data_arf.parquet
+  layer: model_input
+
+scaled_unbiased_data_arf:
+  type: pandas.ParquetDataSet
+  filepath: data/05_model_input/scaled_unbiased_data_arf.parquet
+  layer: model_input
+
+hybrid_scaler:
+  type: pickle.PickleDataSet
+  filepath: data/06_models/hybrid_scaler.pkl
+  layer: models
+
+arf_model:
+  type: pickle.PickleDataSet
+  filepath: data/06_models/arf_price_movement_model.pkl
+  layer: models
