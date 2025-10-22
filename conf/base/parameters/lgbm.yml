@@ -1,11 +1,13 @@
 
 labeling_params:
-  # --- NEW: Method control and Fixed Percentage Barrier Parameters ---
+  # --- Method control and Fixed Percentage Barrier Parameters ---
   # Use 'fixed_pct' for fee-aware barriers or 'volatility' for the original dynamic method.
   method: "fixed_pct" 
   fee_pct: 0.00025             # 0.025% per trade
-  profit_take_net_pct: 0.0006  # Desired NET profit of 0.06%
-  stop_loss_gross_pct: 0.0002  # GROSS price drop of 0.02% for stop-loss trigger
+
+  # --- UPDATED: We now define the GROSS profit target ---
+  profit_take_gross_pct: 0.0006 # Trigger when price moves up by 0.06% BEFORE fees
+  stop_loss_gross_pct: 0.0002   # Trigger when price moves down by 0.02% BEFORE fees
 
   # --- Original Volatility-Based Parameters (can be used by setting method: 'volatility') ---
   vol_lookback: 50
