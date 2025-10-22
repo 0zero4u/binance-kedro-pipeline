@@ -1,0 +1,7 @@
+kedro==0.18.14
+pandas
+numpy
+scikit-learn
+ta
+requests
+lightgbm
