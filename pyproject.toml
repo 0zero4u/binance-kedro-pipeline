@@ -1,4 +1,4 @@
-toml
+
 [tool.kedro]
 package_name = "binance_pipeline"
 project_name = "Binance Pipeline"
