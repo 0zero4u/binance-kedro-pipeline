@@ -42,19 +42,8 @@ def generate_river_features(df: pd.DataFrame) -> pd.DataFrame:
     df.replace([np.inf, -np.inf], np.nan, inplace=True)
     df.dropna(inplace=True)
     
-    # Define the final feature set, now including the new percentile ranks
-    feature_cols = [
-        'cvd_10', 'cvd_50', 
-        'price_mom_5', 'price_mom_20', 
-        'volatility_20',
-        'cvd_10_pct_rank',           #<-- NEW
-        'volatility_20_pct_rank',    #<-- NEW
-        'datetime', 'open', 'high', 'low', 'close'
-    ]
-    
-    final_df = df[feature_cols].reset_index(drop=True)
-    log.info(f"Feature generation complete. Shape: {final_df.shape}")
-    
+    final_df = df.reset_index(drop=True)
+    log.info(f"Feature generation complete. Final shape with all features: {final_df.shape}")
     return final_df
 
 
@@ -200,4 +189,4 @@ def train_arf_model_on_scaled_data(df: pd.DataFrame):
     log.info(f"Final evaluation metrics (Progressive Validation): {metric}")
     
     return model
-   
+    
