@@ -5,15 +5,17 @@ labeling_params:
   fee_pct: 0.00025             # 0.025% per trade
 
   # --- UPDATED: We now define the GROSS profit target ---
-  profit_take_gross_pct: 0.0006 # Trigger when price moves up by 0.06% BEFORE fees
-  stop_loss_gross_pct: 0.0001   # Trigger when price moves down by 0.02% BEFORE fees
-
-  # --- Original Volatility-Based Parameters (can be used by setting method: 'volatility') ---
-  vol_lookback: 50
-  vol_multiplier: 2.0
+  profit_take_gross_pct: 0.0006 # Trigger when price moves up by 0.06% BEFORE fees.
+  stop_loss_gross_pct: 0.0001   # Trigger when price moves down by 0.01% BEFORE fees.
+  
+  # --- Time barrier is shared by both methods ---
   time_barrier_periods: 450
-  profit_take_mult: 1.5
-  stop_loss_mult: 1.5
+
+  # --- Volatility-Based Parameters (unused if method is 'fixed_pct') ---
+  # vol_lookback: 50
+  # vol_multiplier: 2.0
+  # profit_take_mult: 1.5
+  # stop_loss_mult: 1.5
 
 lgbm_params:
   objective: 'multiclass'
@@ -27,4 +29,3 @@ lgbm_params:
   colsample_bytree: 0.7
   reg_alpha: 0.1
   reg_lambda: 0.1
-  
