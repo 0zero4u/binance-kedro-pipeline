@@ -6,13 +6,15 @@ def create_pipeline(**kwargs) -> Pipeline:
         [
             node(
                 func=generate_triple_barrier_labels,
-                inputs=["features_data", "params:lgbm.labeling_params"],
+                # CORRECTED PATH: No extra "lgbm."
+                inputs=["features_data", "params:labeling_params"],
                 outputs="labeled_data",
                 name="generate_labels_node",
             ),
             node(
                 func=train_lgbm_model,
-                inputs=["labeled_data", "params:lgbm.lgbm_params"],
+                # CORRECTED PATH: No extra "lgbm."
+                inputs=["labeled_data", "params:lgbm_params"],
                 outputs="lgbm_model",
                 name="train_lgbm_node",
             ),
