@@ -1,4 +1,3 @@
-
 import pandas as pd
 import numpy as np
 from river import preprocessing, forest, metrics
@@ -10,42 +9,54 @@ log = logging.getLogger(__name__)
 
 def generate_river_features(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Generates features inspired by the live River script, but adapted
-    for offline, bar-based data.
+    Generates features for the ARF model, now including percentile ranks
+    for dynamic, adaptive normalization.
     """
-    log.info("Generating features for River ARF model...")
+    log.info("Generating V2 features with percentile ranks...")
     
-    # Proxy for Order Flow / CVD
-    # Using sign of price change * volume as a proxy for net volume
+    # --- Part 1: Calculate Base Features (as before) ---
     df['order_flow'] = np.sign(df['close'] - df['open']) * df['volume']
     df['order_flow'].fillna(0, inplace=True)
-    
-    # Rolling CVD features over different windows
     df['cvd_10'] = df['order_flow'].rolling(window=10).sum()
     df['cvd_50'] = df['order_flow'].rolling(window=50).sum()
-
-    # Price Momentum (log returns)
     df['price_mom_5'] = np.log(df['close'] / df['close'].shift(5))
     df['price_mom_20'] = np.log(df['close'] / df['close'].shift(20))
-    
-    # Volatility (rolling std dev of log returns)
     df['volatility_20'] = df['price_mom_5'].rolling(window=20).std()
     
-    # Replace inf/-inf with NaN and drop all rows with NaNs from rolling windows
+    # --- Part 2: NEW - Calculate Percentile Rank Features ---
+    # This transforms features into a measure of their relative strength
+    # compared to the recent past, making them regime-adaptive.
+    PERCENTILE_WINDOW = 100 # Use the last 100 bars (10 seconds) for context.
+    
+    # The lambda function calculates the percentile rank of the most recent value in the window.
+    # `raw=False` ensures pandas passes a Series object to the lambda function.
+    df['cvd_10_pct_rank'] = df['cvd_10'].rolling(
+        window=PERCENTILE_WINDOW, min_periods=int(PERCENTILE_WINDOW/2)
+    ).apply(lambda x: pd.Series(x).rank(pct=True).iloc[-1], raw=False)
+    
+    df['volatility_20_pct_rank'] = df['volatility_20'].rolling(
+        window=PERCENTILE_WINDOW, min_periods=int(PERCENTILE_WINDOW/2)
+    ).apply(lambda x: pd.Series(x).rank(pct=True).iloc[-1], raw=False)
+    
+    # --- Part 3: Finalize DataFrame ---
     df.replace([np.inf, -np.inf], np.nan, inplace=True)
     df.dropna(inplace=True)
     
-    # Select final features
+    # Define the final feature set, now including the new percentile ranks
     feature_cols = [
         'cvd_10', 'cvd_50', 
         'price_mom_5', 'price_mom_20', 
         'volatility_20',
-        'datetime', 'open', 'high', 'low', 'close' # Keep price data for labeling
+        'cvd_10_pct_rank',           #<-- NEW
+        'volatility_20_pct_rank',    #<-- NEW
+        'datetime', 'open', 'high', 'low', 'close'
     ]
     
-    log.info(f"Feature generation complete. Shape: {df[feature_cols].shape}")
+    final_df = df[feature_cols].reset_index(drop=True)
+    log.info(f"Feature generation complete. Shape: {final_df.shape}")
     
-    return df[feature_cols].reset_index(drop=True)
+    return final_df
+
 
 def generate_triple_barrier_labels_with_endtime(df: pd.DataFrame, params: dict) -> pd.DataFrame:
     """
@@ -54,26 +65,22 @@ def generate_triple_barrier_labels_with_endtime(df: pd.DataFrame, params: dict) 
     """
     log.info("Generating triple-barrier labels with end times...")
     
-    # Ensure datetime is the index for faster lookups
     df = df.set_index('datetime')
     price = df['close']
     
-    # Use the same fee-aware logic as before
     upper_barrier = price * (1 + params['profit_take_gross_pct'])
     lower_barrier = price * (1 + params['stop_loss_gross_pct'])
 
     labels = pd.Series(np.nan, index=df.index)
-    t_end = pd.Series(pd.NaT, index=df.index, dtype='datetime64[ns]') # Series to store end times
+    t_end = pd.Series(pd.NaT, index=df.index, dtype='datetime64[ns]')
     time_barrier_periods = params['time_barrier_periods']
 
     for i in tqdm(range(len(df) - time_barrier_periods), desc="Labeling Events"):
         start_time = df.index[i]
         time_barrier_end_time = df.index[i + time_barrier_periods]
         
-        # Slice future prices and their timestamps
         future_slice = df.iloc[i+1 : i+1 + time_barrier_periods]
         
-        # Check for barrier hits
         hit_upper_slice = future_slice[future_slice['close'] >= upper_barrier.loc[start_time]]
         hit_lower_slice = future_slice[future_slice['close'] <= lower_barrier.loc[start_time]]
         
@@ -93,7 +100,7 @@ def generate_triple_barrier_labels_with_endtime(df: pd.DataFrame, params: dict) 
         elif pd.notna(first_lower_hit_time):
             labels.loc[start_time] = -1
             t_end.loc[start_time] = first_lower_hit_time
-        else: # Time barrier
+        else:
             labels.loc[start_time] = 0
             t_end.loc[start_time] = time_barrier_end_time
             
@@ -111,9 +118,8 @@ def filter_unbiased_samples(df: pd.DataFrame) -> pd.DataFrame:
     log.info(f"Filtering for unbiased samples. Starting with {len(df)} samples.")
     
     unique_indices = []
-    last_event_end_time = pd.Timestamp.min # Initialize with a very old timestamp
+    last_event_end_time = pd.Timestamp.min
 
-    # Ensure datetime is sorted
     df = df.sort_values('datetime').reset_index(drop=True)
 
     for idx, row in df.iterrows():
@@ -194,3 +200,4 @@ def train_arf_model_on_scaled_data(df: pd.DataFrame):
     log.info(f"Final evaluation metrics (Progressive Validation): {metric}")
     
     return model
+   
