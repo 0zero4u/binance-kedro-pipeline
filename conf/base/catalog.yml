@@ -12,9 +12,19 @@ merged_tick_data:
   type: pandas.ParquetDataSet
   filepath: "data/02_intermediate/merged_tick_data.parquet"
 
-resampled_data:
-  type: pandas.ParquetDataSet
-  filepath: "data/02_intermediate/resampled_100ms_data.parquet"
+# --- Intermediate Datasets for Multi-Timeframe Feature Engineering ---
+resampled_data_100ms: {type: pandas.MemoryDataSet}
+resampled_data_3s: {type: pandas.MemoryDataSet}
+resampled_data_15s: {type: pandas.MemoryDataSet}
+resampled_data_1min: {type: pandas.MemoryDataSet}
+resampled_data_3min: {type: pandas.MemoryDataSet}
+
+features_data_100ms: {type: pandas.MemoryDataSet}
+features_data_3s: {type: pandas.MemoryDataSet}
+features_data_15s: {type: pandas.MemoryDataSet}
+features_data_1min: {type: pandas.MemoryDataSet}
+features_data_3min: {type: pandas.MemoryDataSet}
+# --------------------------------------------------------------------
 
 features_data:
   type: pandas.ParquetDataSet
