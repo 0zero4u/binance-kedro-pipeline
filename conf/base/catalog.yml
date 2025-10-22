@@ -1,1 +1,31 @@
+book_raw:
+  type: pandas.CSVDataSet
+  filepath: "data/01_raw/book_ticker.csv"
+  load_args: {names: ["event_time", "symbol", "best_bid_price", "best_bid_qty", "best_ask_price", "best_ask_qty", "transaction_time", "update_id"]}
 
+trade_raw:
+  type: pandas.CSVDataSet
+  filepath: "data/01_raw/trades.csv"
+  load_args: {names: ["id", "price", "qty", "quote_qty", "time", "is_buyer_maker"]}
+
+merged_tick_data:
+  type: pandas.ParquetDataSet
+  filepath: "data/02_intermediate/merged_tick_data.parquet"
+
+resampled_data:
+  type: pandas.ParquetDataSet
+  filepath: "data/02_intermediate/resampled_100ms_data.parquet"
+
+features_data:
+  type: pandas.ParquetDataSet
+  filepath: "data/03_primary/features_data.parquet"
+
+labeled_data:
+  type: pandas.ParquetDataSet
+  filepath: "data/05_model_input/labeled_data.parquet"
+  layer: model_input
+
+lgbm_model:
+  type: pickle.PickleDataSet
+  filepath: "data/06_models/lgbm_price_movement_model.pkl"
+  layer: models
