@@ -1,24 +1,5 @@
-from binance_pipeline.pipelines import lgbm
-from kedro.config import ConfigLoader
-from kedro.io import DataCatalog
-
-#_config_loader = ConfigLoader(conf_source="conf")
-#_catalog_patterns = _config_loader.get("catalog*", "catalog*/**")
-#_catalog = DataCatalog.from_config(_catalog_patterns)
-
-#_params_patterns = _config_loader.get("parameters*", "parameters*/**")
-#_parameters = _config_loader.get(_params_patterns)
-
-# HOOKS = ()
-# SESSION_STORE_CLASS = ShelveStore
-# SESSION_STORE_ARGS = {"path": "./sessions"}
-
-# Class that manages how configuration is loaded.
-# from kedro.config import TemplatedConfigLoader
-# CONFIG_LOADER_CLASS = TemplatedConfigLoader
-# CONFIG_LOADER_ARGS = {
-#       "globals_pattern": "*globals.yml",
-# }
+from binance_pipeline.pipeline import create_pipeline as create_data_engineering_pipeline
+from binance_pipeline.pipelines.lgbm.pipeline import create_pipeline as create_lgbm_pipeline
 
 # Class that manages Kedro's library components.
 # from kedro.framework.context import KedroContext
@@ -31,8 +12,15 @@ from kedro.io import DataCatalog
 # from kedro.io import DataCatalog
 # DATA_CATALOG_CLASS = DataCatalog
 
-# Lets Kedro know about our new pipeline
+
+# This dictionary registers all pipelines in your project.
 PIPELINES = {
-    "__default__": lgbm.create_pipeline(),
-    "lgbm": lgbm.create_pipeline(),
+    # The pipeline that runs when you just type "kedro run"
+    "__default__": create_data_engineering_pipeline(),
+
+    # The data engineering pipeline, which you can also run by name
+    "de": create_data_engineering_pipeline(),
+
+    # The modeling pipeline, which you can run by name
+    "lgbm": create_lgbm_pipeline(),
 }
