@@ -1,3 +1,4 @@
+
 import pandas as pd
 import numpy as np
 from river import preprocessing, forest, metrics
@@ -50,15 +51,26 @@ def generate_river_features(df: pd.DataFrame) -> pd.DataFrame:
 def generate_triple_barrier_labels_with_endtime(df: pd.DataFrame, params: dict) -> pd.DataFrame:
     """
     Applies the triple-barrier labeling method and adds the timestamp 't_end'
-    when the event concluded. This is required for unbiased sample filtering.
+    when the event concluded. This is required for unbiased sample filtering.    
+    Supports two methods controlled by params['method']:
+    1. 'volatility': Dynamic barriers based on price volatility.
+    2. 'fixed_pct': Fixed percentage barriers that account for fees.
     """
-    log.info("Generating triple-barrier labels with end times...")
+    log.info(f"Generating triple-barrier labels with end times using '{params.get('method', 'volatility')}' method...")
     
     df = df.set_index('datetime')
     price = df['close']
     
-    upper_barrier = price * (1 + params['profit_take_gross_pct'])
-    lower_barrier = price * (1 + params['stop_loss_gross_pct'])
+    # --- Barrier Calculation ---
+    if params.get('method') == 'fixed_pct':
+        upper_barrier = price * (1 + params['profit_take_gross_pct'])
+        lower_barrier = price * (1 - params['stop_loss_gross_pct'])
+        log.info(f"ARF using fixed barriers: TP at {params['profit_take_gross_pct']*100:.4f}%, SL at {params['stop_loss_gross_pct']*100:.4f}%.")
+    else: # Default to original volatility-based method
+        log.info("ARF using volatility-based barriers.")
+        daily_vol = price.diff().rolling(window=params['vol_lookback']).std()
+        upper_barrier = price + daily_vol * params['vol_multiplier'] * params['profit_take_mult']
+        lower_barrier = price - daily_vol * params['vol_multiplier'] * params['stop_loss_mult']
 
     labels = pd.Series(np.nan, index=df.index)
     t_end = pd.Series(pd.NaT, index=df.index, dtype='datetime64[ns]')
@@ -189,4 +201,3 @@ def train_arf_model_on_scaled_data(df: pd.DataFrame):
     log.info(f"Final evaluation metrics (Progressive Validation): {metric}")
     
     return model
-    
