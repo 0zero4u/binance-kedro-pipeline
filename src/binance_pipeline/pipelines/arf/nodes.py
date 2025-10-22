@@ -27,7 +27,7 @@ def generate_river_features(df: pd.DataFrame) -> pd.DataFrame:
     # --- Part 2: NEW - Calculate Percentile Rank Features ---
     # This transforms features into a measure of their relative strength
     # compared to the recent past, making them regime-adaptive.
-    PERCENTILE_WINDOW = 100 # Use the last 100 bars (10 seconds) for context.
+    PERCENTILE_WINDOW = 400 
     
     # The lambda function calculates the percentile rank of the most recent value in the window.
     # `raw=False` ensures pandas passes a Series object to the lambda function.
