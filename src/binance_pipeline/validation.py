@@ -14,7 +14,7 @@ class EnrichedTickSchema(pa.SchemaModel):
     timestamp: Series[int] = pa.Field(
         nullable=False,
         unique=True,
-        # CORRECTED: Use the robust checks=[...] list syntax with the right method name.
+        # FINAL FIX: Use the robust checks=[...] list syntax with the correct method name.
         checks=[pa.Check.monotonic_increasing()],
         description="Unix timestamp in milliseconds, must be unique and increasing."
     )
@@ -47,8 +47,6 @@ class EnrichedTickSchema(pa.SchemaModel):
 
 # ==================================
 # 2. Validator Nodes
-# =
-# ... (The rest of the file is unchanged and correct) ...
 # ==================================
 
 def validate_enriched_tick_data(df: pd.DataFrame) -> pd.DataFrame:
@@ -77,7 +75,7 @@ def validate_features_data_logic(df: pd.DataFrame) -> pd.DataFrame:
         # Check 1: Correlation between order flow and returns should be positive
         correlation = df['returns'].corr(df['cvd_taker_50'])
         log.info(f"Correlation(returns, cvd_taker_50) = {correlation:.4f}")
-
+        
         # A very weak positive correlation is expected. If it's negative, something is likely wrong.
         assert correlation > 0.001, f"Logical check failed: Correlation between returns and CVD is not positive ({correlation:.4f}). This indicates a potential bug in feature logic."
 
