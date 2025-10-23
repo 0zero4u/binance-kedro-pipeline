@@ -10,7 +10,7 @@ from scipy.fft import fft, fftfreq
 from typing import Dict, Tuple
 import numba
 import time
-from tqdm import tqdm # <--- ADDED IMPORT
+from tqdm import tqdm
 
 log = logging.getLogger(__name__)
 
@@ -25,10 +25,8 @@ def download_and_unzip(url: str, output_dir: str):
     log.info(f"Downloading from {url}...")
     with requests.get(url, stream=True) as r:
         r.raise_for_status()
-        # Get total file size from headers for the progress bar
         total_size = int(r.headers.get('content-length', 0))
         
-        # --- MODIFICATION START: Add tqdm progress bar ---
         with open(zip_path, 'wb') as f, tqdm(
             desc=f"Downloading {file_name}",
             total=total_size,
@@ -39,7 +37,6 @@ def download_and_unzip(url: str, output_dir: str):
             for chunk in r.iter_content(chunk_size=8192):
                 size = f.write(chunk)
                 bar.update(size)
-        # --- MODIFICATION END ---
 
     log.info(f"Unzipping {zip_path}...")
     with zipfile.ZipFile(zip_path, 'r') as zip_ref:
@@ -60,11 +57,9 @@ def merge_book_trade_asof(book_raw: pd.DataFrame, trade_raw: pd.DataFrame) -> pd
     trades.rename(columns={'time': 'timestamp'}, inplace=True)
     trades['timestamp'] = pd.to_numeric(trades['timestamp'], errors='coerce')
     
-    # --- START OF FIX ---
     # Explicitly convert price and quantity columns to numeric types.
     trades['price'] = pd.to_numeric(trades['price'], errors='coerce')
     trades['qty'] = pd.to_numeric(trades['qty'], errors='coerce')
-    # --- END OF FIX ---
 
     trades.dropna(subset=['timestamp'], inplace=True)
     trades.sort_values('timestamp', inplace=True)
@@ -76,13 +71,11 @@ def merge_book_trade_asof(book_raw: pd.DataFrame, trade_raw: pd.DataFrame) -> pd
     book.rename(columns={'event_time': 'timestamp'}, inplace=True)
     book['timestamp'] = pd.to_numeric(book['timestamp'], errors='coerce')
 
-    # --- START OF FIX ---
     # Explicitly convert all book-related columns to numeric types.
     book['best_bid_price'] = pd.to_numeric(book['best_bid_price'], errors='coerce')
     book['best_ask_price'] = pd.to_numeric(book['best_ask_price'], errors='coerce')
     book['best_bid_qty'] = pd.to_numeric(book['best_bid_qty'], errors='coerce')
     book['best_ask_qty'] = pd.to_numeric(book['best_ask_qty'], errors='coerce')
-    # --- END OF FIX ---
 
     book.dropna(subset=['timestamp'], inplace=True)
     book = book.drop_duplicates(subset='timestamp', keep='last')
@@ -94,8 +87,6 @@ def merge_book_trade_asof(book_raw: pd.DataFrame, trade_raw: pd.DataFrame) -> pd
     merged_df = pd.merge_asof(left=trades, right=book, on='timestamp', direction='backward')
     log.info(f"  - Merge completed in {time.time() - start_time:.2f} seconds.")
     
-    # This dropna will now correctly handle rows that failed type conversion (became NaN)
-    # or failed the merge.
     merged_df.dropna(inplace=True)
 
     # Basic features
@@ -111,7 +102,6 @@ def calculate_tick_level_features(df: pd.DataFrame) -> pd.DataFrame:
     """
     Calculates advanced tick-level features.
     """
-    # --- MODIFICATION: Add dataframe shape for context ---
     log.info(f"Calculating advanced tick-level features for dataframe of shape {df.shape}...")
     df['microprice'] = (
         (df['best_bid_price'] * df['best_ask_qty']) +
@@ -157,7 +147,12 @@ def resample_to_time_bars(df: pd.DataFrame, rule: str = "100ms") -> pd.DataFrame
     start_time = time.time()
     resampled_df = df.resample(rule).agg(aggregations)
     log.info(f"  - Aggregation completed in {time.time() - start_time:.2f} seconds.")
-    resampled_df.columns = ['_'.join(col).strip() for col in resampled_df.columns.values]
+    
+    # Robustly flatten the column MultiIndex, handling both tuples and strings.
+    resampled_df.columns = [
+        '_'.join(col).strip() if isinstance(col, tuple) else col
+        for col in resampled_df.columns.values
+    ]
 
     rename_map = {
         'price_open': 'open', 'price_high': 'high', 'price_low': 'low', 'price_close': 'close',
