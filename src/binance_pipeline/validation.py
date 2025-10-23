@@ -7,32 +7,31 @@ from typing import Annotated
 log = logging.getLogger(__name__)
 
 # ==================================
-# 1. Structural Guardrail Schema (FIXED Modern Syntax)
+# 1. Structural Guardrail Schema (Fixed with correct 'check' parameter)
 # ==================================
 
 class EnrichedTickSchema(pa.SchemaModel):
     """Schema for the structurally validated enriched tick data."""
 
-    # FIXED: Use Series[dtype] for Pandera SchemaModel, not just dtype
     timestamp: Series[int] = pa.Field(
         nullable=False,
         unique=True,
-        checks=pa.Check(lambda s: s.is_monotonic_increasing, name="monotonic_increasing")
+        check=pa.Check(lambda s: s.is_monotonic_increasing, name="monotonic_increasing")
     )
 
     price: Series[float] = pa.Field(
         nullable=False,
-        checks=pa.Check.gt(0)
+        check=pa.Check.gt(0)
     )
     
     best_bid_price: Series[float] = pa.Field(
         nullable=False,
-        checks=pa.Check.gt(0)
+        check=pa.Check.gt(0)
     )
     
     best_ask_price: Series[float] = pa.Field(
         nullable=False,
-        checks=pa.Check.gt(0)
+        check=pa.Check.gt(0)
     )
 
     microprice: Series[float] = pa.Field(
@@ -47,12 +46,12 @@ class EnrichedTickSchema(pa.SchemaModel):
 
     book_imbalance: Series[float] = pa.Field(
         nullable=False,
-        checks=pa.Check.in_range(-1.0, 1.0)
+        check=pa.Check.in_range(-1.0, 1.0)
     )
 
     spread: Series[float] = pa.Field(
         nullable=False,
-        checks=pa.Check.ge(0)
+        check=pa.Check.ge(0)
     )
 
     @pa.dataframe_check
@@ -64,7 +63,7 @@ class EnrichedTickSchema(pa.SchemaModel):
         coerce = True
 
 # ==================================
-# 2. Validator Nodes (Unchanged)
+# 2. Validator Nodes (same as before)
 # ==================================
 
 def validate_enriched_tick_data(df: pd.DataFrame) -> pd.DataFrame:
@@ -81,7 +80,7 @@ def validate_enriched_tick_data(df: pd.DataFrame) -> pd.DataFrame:
         log.error("🔥 Structural guardrail FAILED for enriched_tick_data!")
         log.error("Validation failure details below:")
         log.error(err.failure_cases)
-        raise err # Halt the pipeline
+        raise err  # Halt the pipeline
 
 def validate_features_data_logic(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -99,4 +98,5 @@ def validate_features_data_logic(df: pd.DataFrame) -> pd.DataFrame:
         return df
     except Exception as e:
         log.error("🔥 Logical guardrail FAILED for features_data!")
-        raise e # Halt the pipeline
+        raise e  # Halt the pipeline
+    
