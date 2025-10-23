@@ -3,6 +3,7 @@ import pandera as pa
 from pandera.typing import DataFrame, Series
 import logging
 from typing import Annotated
+import numpy as np # <--- ADD THIS IMPORT
 
 log = logging.getLogger(__name__)
 
@@ -13,34 +14,35 @@ log = logging.getLogger(__name__)
 class EnrichedTickSchema(pa.SchemaModel):
     """Schema for the structurally validated enriched tick data."""
 
-    # FINAL FIX: Use string aliases for dtypes ('int64', 'float64') instead of
-    # the actual types (int, float). This prevents an inspect bug in pandera
-    # when validating empty DataFrames.
+    # --- START OF FIX ---
+    # Replaced string aliases with actual NumPy types (np.int64, np.float64)
+    # to resolve the NameError.
     timestamp: Annotated[
-        'int64',
+        np.int64,
         pa.Field(nullable=False, unique=True),
         pa.Check(lambda s: s.is_monotonic_increasing, name="monotonic_increasing")
     ]
 
-    price: Annotated['float64', pa.Field(nullable=False), pa.Check.gt(0)]
-    best_bid_price: Annotated['float64', pa.Field(nullable=False), pa.Check.gt(0)]
-    best_ask_price: Annotated['float64', pa.Field(nullable=False), pa.Check.gt(0)]
+    price: Annotated[np.float64, pa.Field(nullable=False), pa.Check.gt(0)]
+    best_bid_price: Annotated[np.float64, pa.Field(nullable=False), pa.Check.gt(0)]
+    best_ask_price: Annotated[np.float64, pa.Field(nullable=False), pa.Check.gt(0)]
 
     microprice: Annotated[
-        'float64', pa.Field(nullable=False, description="Microprice should not have any missing values after ffill.")
+        np.float64, pa.Field(nullable=False, description="Microprice should not have any missing values after ffill.")
     ]
 
     ofi: Annotated[
-        'float64', pa.Field(nullable=False, description="Order Flow Imbalance should not have missing values after fillna(0).")
+        np.float64, pa.Field(nullable=False, description="Order Flow Imbalance should not have missing values after fillna(0).")
     ]
 
     book_imbalance: Annotated[
-        'float64', pa.Field(nullable=False), pa.Check.in_range(-1.0, 1.0)
+        np.float64, pa.Field(nullable=False), pa.Check.in_range(-1.0, 1.0)
     ]
 
     spread: Annotated[
-        'float64', pa.Field(nullable=False), pa.Check.ge(0)
+        np.float64, pa.Field(nullable=False), pa.Check.ge(0)
     ]
+    # --- END OF FIX ---
 
     @pa.dataframe_check
     def check_ask_greater_than_bid(cls, df: DataFrame) -> Series[bool]:
@@ -95,4 +97,4 @@ def validate_features_data_logic(df: pd.DataFrame) -> pd.DataFrame:
         return df
     except Exception as e:
         log.error("🔥 Logical guardrail FAILED for features_data!")
-        raise e # Halt the pipeUnchangedangedanged
+        raise e # Halt the pipeline
