@@ -24,7 +24,7 @@ name = "binance-kedro-pipeline"
 version = "0.18.14"
 dependencies = [
     "kedro~=0.18.14",
-    "kedro-datasets[pandas, pickle]",
+    "kedro-datasets[ pickle]",
     "pandas==2.2.2",
     "numpy==1.26.4", # <-- THIS LINE IS NOW FIXED
     "pyarrow",
