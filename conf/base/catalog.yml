@@ -1,10 +1,10 @@
-
 # 01_raw
 book_raw:
   type: kedro_datasets.pandas.CSVDataset
   filepath: "data/01_raw/book_ticker.csv"
   load_args:
     names: ["event_time", "symbol", "best_bid_price", "best_bid_qty", "best_ask_price", "best_ask_qty", "transaction_time", "update_id"]
+    skiprows: 1 # <--- ADD THIS LINE
     dtype:
       event_time: int64
       symbol: str
@@ -20,6 +20,7 @@ trade_raw:
   filepath: "data/01_raw/trades.csv"
   load_args:
     names: ["id", "price", "qty", "quote_qty", "time", "is_buyer_maker"]
+    skiprows: 1 # <--- AND ADD THIS LINE
     dtype:
       id: int64
       price: float64
