@@ -20,7 +20,7 @@ def create_pipeline(**kwargs) -> Pipeline:
             ),
             node(
                 func=generate_triple_barrier_labels_with_endtime,
-                inputs=["features_data_arf", "params:labeling_params"],
+                inputs=["features_data_arf", "params:lgbm.labeling_params"],
                 outputs="labeled_data_arf",
                 name="generate_arf_labels_node",
             ),
@@ -50,4 +50,3 @@ def create_pipeline(**kwargs) -> Pipeline:
             ),
         ]
     )
-    
