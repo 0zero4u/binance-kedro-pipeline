@@ -36,4 +36,5 @@ dependencies = [
     "requests",
     "tqdm",
     "pandera==0.16.1",
+    "pydantic>=2.0.0",
 ]
