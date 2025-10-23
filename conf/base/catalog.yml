@@ -11,6 +11,7 @@ trade_raw:
 
 # 02_intermediate
 merged_tick_data: {type: pandas.ParquetDataSet, filepath: "data/02_intermediate/merged_tick_data.parquet"}
+enriched_tick_data_unvalidated: {type: pandas.MemoryDataSet}
 enriched_tick_data: {type: pandas.MemoryDataSet}
 resampled_data_100ms: {type: pandas.MemoryDataSet}
 resampled_data_3s: {type: pandas.MemoryDataSet}
@@ -25,6 +26,7 @@ features_data_1min: {type: pandas.MemoryDataSet}
 features_data_3min: {type: pandas.MemoryDataSet}
 
 # 03_primary
+features_data_unvalidated: {type: pandas.MemoryDataSet}
 features_data: {type: pandas.ParquetDataSet, filepath: "data/03_primary/features_data.parquet"}
 
 # 05_model_input (LGBM)
@@ -39,10 +41,15 @@ lgbm_model:
   filepath: "data/06_models/lgbm_price_movement_model.pkl"
   layer: models
 
-# 07_reporting (LGBM)
+# 07_reporting (LGBM & New Traceability Report)
 lgbm_eval_results:
   type: kedro.extras.datasets.json.JSONDataSet
   filepath: "data/07_reporting/lgbm_evaluation.json"
+
+unified_5min_traceability_report:
+  type: pandas.CSVDataSet
+  filepath: "data/07_reporting/unified_5min_traceability_report.csv"
+  layer: reporting
 
 # ----------------------------------------------------------------
 # Datasets for the ARF Pipeline
