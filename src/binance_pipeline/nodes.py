@@ -56,11 +56,8 @@ def merge_book_trade_asof(book_raw: pd.DataFrame, trade_raw: pd.DataFrame) -> pd
     trades = trade_raw[['time', 'price', 'qty', 'is_buyer_maker']].copy()
     trades.rename(columns={'time': 'timestamp'}, inplace=True)
     trades['timestamp'] = pd.to_numeric(trades['timestamp'], errors='coerce')
-    
-    # Explicitly convert price and quantity columns to numeric types.
     trades['price'] = pd.to_numeric(trades['price'], errors='coerce')
     trades['qty'] = pd.to_numeric(trades['qty'], errors='coerce')
-
     trades.dropna(subset=['timestamp'], inplace=True)
     trades.sort_values('timestamp', inplace=True)
 
@@ -70,13 +67,10 @@ def merge_book_trade_asof(book_raw: pd.DataFrame, trade_raw: pd.DataFrame) -> pd
                      'best_bid_qty', 'best_ask_qty']].copy()
     book.rename(columns={'event_time': 'timestamp'}, inplace=True)
     book['timestamp'] = pd.to_numeric(book['timestamp'], errors='coerce')
-
-    # Explicitly convert all book-related columns to numeric types.
     book['best_bid_price'] = pd.to_numeric(book['best_bid_price'], errors='coerce')
     book['best_ask_price'] = pd.to_numeric(book['best_ask_price'], errors='coerce')
     book['best_bid_qty'] = pd.to_numeric(book['best_bid_qty'], errors='coerce')
     book['best_ask_qty'] = pd.to_numeric(book['best_ask_qty'], errors='coerce')
-
     book.dropna(subset=['timestamp'], inplace=True)
     book = book.drop_duplicates(subset='timestamp', keep='last')
     book.sort_values('timestamp', inplace=True)
@@ -86,7 +80,6 @@ def merge_book_trade_asof(book_raw: pd.DataFrame, trade_raw: pd.DataFrame) -> pd
     start_time = time.time()
     merged_df = pd.merge_asof(left=trades, right=book, on='timestamp', direction='backward')
     log.info(f"  - Merge completed in {time.time() - start_time:.2f} seconds.")
-    
     merged_df.dropna(inplace=True)
 
     # Basic features
@@ -99,9 +92,7 @@ def merge_book_trade_asof(book_raw: pd.DataFrame, trade_raw: pd.DataFrame) -> pd
 
 # --- Tick-Level Features Node ---
 def calculate_tick_level_features(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Calculates advanced tick-level features.
-    """
+    """Calculates advanced tick-level features."""
     log.info(f"Calculating advanced tick-level features for dataframe of shape {df.shape}...")
     df['microprice'] = (
         (df['best_bid_price'] * df['best_ask_qty']) +
@@ -131,13 +122,20 @@ def resample_to_time_bars(df: pd.DataFrame, rule: str = "100ms") -> pd.DataFrame
     df['datetime'] = pd.to_datetime(df['timestamp'], unit='ms')
     df = df.set_index('datetime')
 
-    aggregations = {
+    # --- START OF FIX ---
+    # The 'ohlc' aggregation creates single-level columns and must be run separately
+    # from list-based aggregations which create a MultiIndex.
+    
+    ohlc_aggregations = {
         'price': 'ohlc',
+        'microprice': 'ohlc',
+    }
+    
+    other_aggregations = {
         'qty': ['sum', 'mean', 'std', 'count'],
-        'mid_price': 'last',
+        'mid_price': ['last'],  # Use list to ensure MultiIndex for consistency
         'spread': ['mean', 'std', 'min', 'max'],
         'spread_bps': ['mean', 'std'],
-        'microprice': 'ohlc',
         'taker_flow': ['sum', 'mean', 'std'],
         'ofi': ['sum', 'mean'],
         'book_imbalance': ['mean', 'std', 'min', 'max'],
@@ -145,14 +143,20 @@ def resample_to_time_bars(df: pd.DataFrame, rule: str = "100ms") -> pd.DataFrame
 
     log.info("  - Starting .resample().agg() (this can be slow)...")
     start_time = time.time()
-    resampled_df = df.resample(rule).agg(aggregations)
-    log.info(f"  - Aggregation completed in {time.time() - start_time:.2f} seconds.")
     
-    # Robustly flatten the column MultiIndex, handling both tuples and strings.
-    resampled_df.columns = [
-        '_'.join(col).strip() if isinstance(col, tuple) else col
-        for col in resampled_df.columns.values
-    ]
+    # Perform aggregations separately
+    resampled_ohlc = df.resample(rule).agg(ohlc_aggregations)
+    resampled_other = df.resample(rule).agg(other_aggregations)
+    
+    # Flatten the MultiIndex columns from each result
+    resampled_ohlc.columns = ['_'.join(col).strip() for col in resampled_ohlc.columns.values]
+    resampled_other.columns = ['_'.join(col).strip() for col in resampled_other.columns.values]
+    
+    # Join the results back together
+    resampled_df = resampled_ohlc.join(resampled_other)
+    
+    log.info(f"  - Aggregation completed in {time.time() - start_time:.2f} seconds.")
+    # --- END OF FIX ---
 
     rename_map = {
         'price_open': 'open', 'price_high': 'high', 'price_low': 'low', 'price_close': 'close',
