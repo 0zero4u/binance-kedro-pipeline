@@ -12,6 +12,10 @@ merged_tick_data:
   type: pandas.ParquetDataSet
   filepath: "data/02_intermediate/merged_tick_data.parquet"
 
+# NEW: Dataset for tick data with microprice and taker flow
+enriched_tick_data:
+  type: pandas.MemoryDataSet
+
 # --- Intermediate Datasets for Multi-Timeframe Feature Engineering ---
 resampled_data_100ms: {type: pandas.MemoryDataSet}
 resampled_data_3s: {type: pandas.MemoryDataSet}
