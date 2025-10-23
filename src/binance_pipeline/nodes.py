@@ -82,11 +82,8 @@ def calculate_tick_level_features(df: pd.DataFrame) -> pd.DataFrame:
     ) / (df['best_bid_qty'] + df['best_ask_qty'])
     df['microprice'].ffill(inplace=True)
 
-    # Taker Flow (signed volume)
-    df['taker_flow'] = df.apply(
-        lambda row: row['qty'] if not row['is_buyer_maker'] else -row['qty'],
-        axis=1
-    )
+    # Taker Flow (signed volume) - VECTORIZED
+    df['taker_flow'] = np.where(df['is_buyer_maker'], -df['qty'], df['qty'])
 
     # Order Flow Imbalance (OFI)
     bid_price_diff = df['best_bid_price'].diff()
