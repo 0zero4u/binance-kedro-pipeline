@@ -10,12 +10,13 @@ from scipy.fft import fft, fftfreq
 from typing import Dict, Tuple
 import numba
 import time
+from tqdm import tqdm # <--- ADDED IMPORT
 
 log = logging.getLogger(__name__)
 
 # --- Download Node ---
 def download_and_unzip(url: str, output_dir: str):
-    """Downloads and extracts data from URL."""
+    """Downloads and extracts data from URL with a live progress bar."""
     p_output_dir = Path(output_dir)
     p_output_dir.mkdir(parents=True, exist_ok=True)
     file_name = url.split('/')[-1]
@@ -24,9 +25,21 @@ def download_and_unzip(url: str, output_dir: str):
     log.info(f"Downloading from {url}...")
     with requests.get(url, stream=True) as r:
         r.raise_for_status()
-        with open(zip_path, 'wb') as f:
+        # Get total file size from headers for the progress bar
+        total_size = int(r.headers.get('content-length', 0))
+        
+        # --- MODIFICATION START: Add tqdm progress bar ---
+        with open(zip_path, 'wb') as f, tqdm(
+            desc=f"Downloading {file_name}",
+            total=total_size,
+            unit='iB',
+            unit_scale=True,
+            unit_divisor=1024,
+        ) as bar:
             for chunk in r.iter_content(chunk_size=8192):
-                f.write(chunk)
+                size = f.write(chunk)
+                bar.update(size)
+        # --- MODIFICATION END ---
 
     log.info(f"Unzipping {zip_path}...")
     with zipfile.ZipFile(zip_path, 'r') as zip_ref:
@@ -79,7 +92,8 @@ def calculate_tick_level_features(df: pd.DataFrame) -> pd.DataFrame:
     """
     Calculates advanced tick-level features.
     """
-    log.info("Calculating advanced tick-level features...")
+    # --- MODIFICATION: Add dataframe shape for context ---
+    log.info(f"Calculating advanced tick-level features for dataframe of shape {df.shape}...")
     df['microprice'] = (
         (df['best_bid_price'] * df['best_ask_qty']) +
         (df['best_ask_price'] * df['best_bid_qty'])
