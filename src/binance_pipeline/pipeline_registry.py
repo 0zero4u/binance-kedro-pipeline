@@ -1,5 +1,5 @@
 from typing import Dict
-    from kedro.pipeline import Pipeline
+from kedro.pipeline import Pipeline
 
     def register_pipelines() -> Dict[str, Pipeline]:
         """Register the project's pipelines.
