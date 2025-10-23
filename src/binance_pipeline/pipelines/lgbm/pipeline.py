@@ -1,5 +1,6 @@
 from kedro.pipeline import Pipeline, node
-from .nodes import generate_triple_barrier_labels, train_lgbm_model
+from .nodes import train_lgbm_model
+from binance_pipeline.pipelines.data_science.nodes import generate_triple_barrier_labels
 
 def create_pipeline(**kwargs) -> Pipeline:
     return Pipeline([
@@ -16,4 +17,3 @@ def create_pipeline(**kwargs) -> Pipeline:
             name="train_lgbm_node",
         ),
     ])
-    
