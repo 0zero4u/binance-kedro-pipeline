@@ -37,8 +37,3 @@ dependencies = [
     "tqdm",
     "pandera>=0.15.0",
 ]
-```
-
-### Next Steps in Your Notebook
-
-**1. Re-run the install cell.** This will confirm all the correct versions are in place. You might still see the `pytest/pluggy` warning, but you can safely ignore it.
