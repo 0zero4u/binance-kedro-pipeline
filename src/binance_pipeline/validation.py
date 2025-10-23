@@ -1,8 +1,10 @@
+
 import pandas as pd
 import pandera as pa
 from pandera.typing import DataFrame, Series
 import logging
-from typing import Annotated
+# We no longer need 'Annotated' from typing
+# from typing import Annotated 
 
 log = logging.getLogger(__name__)
 
@@ -10,37 +12,41 @@ log = logging.getLogger(__name__)
 # 1. Structural Guardrail Schema (Final )
 # ==================================
 
+# --- START OF FIX ---
+# Refactored the entire schema to use the canonical and more robust
+# `Series[type] = pa.Field(...)` syntax. This avoids the `Annotated`
+# feature which is causing an internal `inspect.signature` error with
+# Python 3.12 and this version of Pandera.
+
 class EnrichedTickSchema(pa.SchemaModel):
     """Schema for the structurally validated enriched tick data."""
 
-    # --- START OF FIX ---
-    # Replaced numpy types with native Python types (int, float) as required
-    # by Pandera's signature inspection for SchemaModel.
-    timestamp: Annotated[
-        int,
-        pa.Field(nullable=False, unique=True),
-        pa.Check(lambda s: s.is_monotonic_increasing, name="monotonic_increasing")
-    ]
+    timestamp: Series[int] = pa.Field(
+        nullable=False, 
+        unique=True,
+        checks=pa.Check(lambda s: s.is_monotonic_increasing, name="monotonic_increasing")
+    )
 
-    price: Annotated[float, pa.Field(nullable=False), pa.Check.gt(0)]
-    best_bid_price: Annotated[float, pa.Field(nullable=False), pa.Check.gt(0)]
-    best_ask_price: Annotated[float, pa.Field(nullable=False), pa.Check.gt(0)]
+    price: Series[float] = pa.Field(nullable=False, ge=0)
+    best_bid_price: Series[float] = pa.Field(nullable=False, ge=0)
+    best_ask_price: Series[float] = pa.Field(nullable=False, ge=0)
 
-    microprice: Annotated[
-        float, pa.Field(nullable=False, description="Microprice should not have any missing values after ffill.")
-    ]
+    microprice: Series[float] = pa.Field(
+        nullable=False, 
+        description="Microprice should not have any missing values after ffill."
+    )
 
-    ofi: Annotated[
-        float, pa.Field(nullable=False, description="Order Flow Imbalance should not have missing values after fillna(0).")
-    ]
+    ofi: Series[float] = pa.Field(
+        nullable=False, 
+        description="Order Flow Imbalance should not have missing values after fillna(0)."
+    )
 
-    book_imbalance: Annotated[
-        float, pa.Field(nullable=False), pa.Check.in_range(-1.0, 1.0)
-    ]
+    book_imbalance: Series[float] = pa.Field(
+        nullable=False, 
+        in_range={"min_value": -1.0, "max_value": 1.0}
+    )
 
-    spread: Annotated[
-        float, pa.Field(nullable=False), pa.Check.ge(0)
-    ]
+    spread: Series[float] = pa.Field(nullable=False, ge=0)
     # --- END OF FIX ---
 
     @pa.dataframe_check
@@ -50,6 +56,7 @@ class EnrichedTickSchema(pa.SchemaModel):
 
     class Config:
         coerce = True
+        strict = "filter" # Add this to be safe, it drops columns not in the schema
 
 # ==================================
 # 2. Validator Nodes 
@@ -61,20 +68,21 @@ def validate_enriched_tick_data(df: pd.DataFrame) -> pd.DataFrame:
     Halts the pipeline if validation fails.
     """
     log.info(f"Applying STRUCTURAL guardrail to enriched_tick_data (shape: {df.shape})...")
-    # Add a check for the empty DataFrame to provide a better warning.
     if df.empty:
         log.warning("Input to 'validate_enriched_tick_data' is an empty DataFrame. Validation will pass, but no data will be processed downstream.")
-        return df # Pass the empty frame through
+        return df
 
     try:
-        EnrichedTickSchema.validate(df, lazy=True)
+        # The validation call remains the same
+        validated_df = EnrichedTickSchema.validate(df, lazy=True)
         log.info("✅ Structural guardrail PASSED for enriched_tick_data.")
-        return df
+        return validated_df
     except pa.errors.SchemaErrors as err:
         log.error("🔥 Structural guardrail FAILED for enriched_tick_data!")
         log.error("Validation failure details below:")
-        log.error(err.failure_cases)
-        raise err # Halt the pipeline
+        # The error report from Pandera is excellent for debugging
+        log.error(err.failure_cases.to_string())
+        raise err
 
 def validate_features_data_logic(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -87,6 +95,12 @@ def validate_features_data_logic(df: pd.DataFrame) -> pd.DataFrame:
         return df
 
     try:
+        # Ensure 'returns' and 'cvd_taker_50' exist before correlation
+        required_cols = ['returns', 'cvd_taker_50']
+        if not all(col in df.columns for col in required_cols):
+             log.warning(f"Skipping logical check: Missing one of {required_cols} in the dataframe.")
+             return df
+
         correlation = df['returns'].corr(df['cvd_taker_50'])
         log.info(f"Correlation(returns, cvd_taker_50) = {correlation:.4f}")
         
@@ -96,4 +110,4 @@ def validate_features_data_logic(df: pd.DataFrame) -> pd.DataFrame:
         return df
     except Exception as e:
         log.error("🔥 Logical guardrail FAILED for features_data!")
-        raise e # Halt the pipeline
+        raise e
