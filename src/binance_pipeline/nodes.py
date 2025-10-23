@@ -55,19 +55,35 @@ def merge_book_trade_asof(book_raw: pd.DataFrame, trade_raw: pd.DataFrame) -> pd
     log.info(f"  - Input 'trade_raw' shape: {trade_raw.shape}")
 
     # Prepare trades
-    log.info("  - Preparing trade data (sorting, cleaning)...")
+    log.info("  - Preparing trade data (sorting, cleaning, and type conversion)...")
     trades = trade_raw[['time', 'price', 'qty', 'is_buyer_maker']].copy()
     trades.rename(columns={'time': 'timestamp'}, inplace=True)
     trades['timestamp'] = pd.to_numeric(trades['timestamp'], errors='coerce')
+    
+    # --- START OF FIX ---
+    # Explicitly convert price and quantity columns to numeric types.
+    trades['price'] = pd.to_numeric(trades['price'], errors='coerce')
+    trades['qty'] = pd.to_numeric(trades['qty'], errors='coerce')
+    # --- END OF FIX ---
+
     trades.dropna(subset=['timestamp'], inplace=True)
     trades.sort_values('timestamp', inplace=True)
 
     # Prepare book
-    log.info("  - Preparing book data (sorting, cleaning)...")
+    log.info("  - Preparing book data (sorting, cleaning, and type conversion)...")
     book = book_raw[['event_time', 'best_bid_price', 'best_ask_price',
                      'best_bid_qty', 'best_ask_qty']].copy()
     book.rename(columns={'event_time': 'timestamp'}, inplace=True)
     book['timestamp'] = pd.to_numeric(book['timestamp'], errors='coerce')
+
+    # --- START OF FIX ---
+    # Explicitly convert all book-related columns to numeric types.
+    book['best_bid_price'] = pd.to_numeric(book['best_bid_price'], errors='coerce')
+    book['best_ask_price'] = pd.to_numeric(book['best_ask_price'], errors='coerce')
+    book['best_bid_qty'] = pd.to_numeric(book['best_bid_qty'], errors='coerce')
+    book['best_ask_qty'] = pd.to_numeric(book['best_ask_qty'], errors='coerce')
+    # --- END OF FIX ---
+
     book.dropna(subset=['timestamp'], inplace=True)
     book = book.drop_duplicates(subset='timestamp', keep='last')
     book.sort_values('timestamp', inplace=True)
@@ -77,6 +93,9 @@ def merge_book_trade_asof(book_raw: pd.DataFrame, trade_raw: pd.DataFrame) -> pd
     start_time = time.time()
     merged_df = pd.merge_asof(left=trades, right=book, on='timestamp', direction='backward')
     log.info(f"  - Merge completed in {time.time() - start_time:.2f} seconds.")
+    
+    # This dropna will now correctly handle rows that failed type conversion (became NaN)
+    # or failed the merge.
     merged_df.dropna(inplace=True)
 
     # Basic features
