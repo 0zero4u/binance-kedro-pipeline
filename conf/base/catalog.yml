@@ -1,16 +1,16 @@
 # 01_raw
 book_raw:
-  type: kedro.extras.datasets.pandas.CSVDataSet
+  type: kedro_datasets.pandas.CSVDataSet
   filepath: "data/01_raw/book_ticker.csv"
   load_args: {names: ["event_time", "symbol", "best_bid_price", "best_bid_qty", "best_ask_price", "best_ask_qty", "transaction_time", "update_id"]}
 
 trade_raw:
-  type: kedro.extras.datasets.pandas.CSVDataSet
+  type: kedro_datasets.pandas.CSVDataSet
   filepath: "data/01_raw/trades.csv"
   load_args: {names: ["id", "price", "qty", "quote_qty", "time", "is_buyer_maker"]}
 
 # 02_intermediate
-merged_tick_data: {type: kedro.extras.datasets.pandas.ParquetDataSet, filepath: "data/02_intermediate/merged_tick_data.parquet"}
+merged_tick_data: {type: kedro_datasets.pandas.ParquetDataSet, filepath: "data/02_intermediate/merged_tick_data.parquet"}
 enriched_tick_data_unvalidated: {type: MemoryDataSet}
 enriched_tick_data: {type: MemoryDataSet}
 resampled_data_100ms: {type: MemoryDataSet}
@@ -27,36 +27,36 @@ features_data_3min: {type: MemoryDataSet}
 
 # 03_primary
 features_data_unvalidated: {type: MemoryDataSet}
-features_data: {type: kedro.extras.datasets.pandas.ParquetDataSet, filepath: "data/03_primary/features_data.parquet"}
+features_data: {type: kedro_datasets.pandas.ParquetDataSet, filepath: "data/03_primary/features_data.parquet"}
 
 # 05_model_input (LGBM)
 labeled_data:
-  type: kedro.extras.datasets.pandas.ParquetDataSet
+  type: kedro_datasets.pandas.ParquetDataSet
   filepath: "data/05_model_input/labeled_data.parquet"
   layer: model_input
 
 # 06_models (LGBM)
 lgbm_model:
-  type: kedro.extras.datasets.pickle.PickleDataSet
+  type: kedro_datasets.pickle.PickleDataSet
   filepath: "data/06_models/lgbm_price_movement_model.pkl"
   layer: models
 
 # 07_reporting (LGBM & New Traceability Report)
 lgbm_eval_results:
-  type: kedro.extras.datasets.json.JSONDataSet
+  type: kedro_datasets.json.JSONDataSet
   filepath: "data/07_reporting/lgbm_evaluation.json"
 
 unified_5min_traceability_report:
-  type: kedro.extras.datasets.pandas.CSVDataSet
+  type: kedro_datasets.pandas.CSVDataSet
   filepath: "data/07_reporting/unified_5min_traceability_report.csv"
   layer: reporting
 
 # ----------------------------------------------------------------
 # Datasets for the ARF Pipeline
 # ----------------------------------------------------------------
-features_data_arf: {type: kedro.extras.datasets.pandas.ParquetDataSet, filepath: data/03_primary/features_data_arf.parquet}
-labeled_data_arf: {type: kedro.extras.datasets.pandas.ParquetDataSet, filepath: data/05_model_input/labeled_data_arf.parquet}
-scaled_data_arf: {type: kedro.extras.datasets.pandas.ParquetDataSet, filepath: data/05_model_input/scaled_data_arf.parquet}
-robust_scaler: {type: kedro.extras.datasets.pickle.PickleDataSet, filepath: data/06_models/robust_scaler.pkl}
-arf_training_results: {type: kedro.extras.datasets.pickle.PickleDataSet, filepath: data/06_models/arf_training_results.pkl}
-arf_model: {type: kedro.extras.datasets.pickle.PickleDataSet, filepath: data/06_models/arf_price_movement_model.pkl, layer: models}
+features_data_arf: {type: kedro_datasets.pandas.ParquetDataSet, filepath: data/03_primary/features_data_arf.parquet}
+labeled_data_arf: {type: kedro_datasets.pandas.ParquetDataSet, filepath: data/05_model_input/labeled_data_arf.parquet}
+scaled_data_arf: {type: kedro_datasets.pandas.ParquetDataSet, filepath: data/05_model_input/scaled_data_arf.parquet}
+robust_scaler: {type: kedro_datasets.pickle.PickleDataSet, filepath: data/06_models/robust_scaler.pkl}
+arf_training_results: {type: kedro_datasets.pickle.PickleDataSet, filepath: data/06_models/arf_training_results.pkl}
+arf_model: {type: kedro_datasets.pickle.PickleDataSet, filepath: data/06_models/arf_price_movement_model.pkl, layer: models}
