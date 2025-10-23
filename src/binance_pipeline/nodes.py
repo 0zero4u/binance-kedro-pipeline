@@ -80,7 +80,11 @@ def merge_book_trade_asof(book_raw: pd.DataFrame, trade_raw: pd.DataFrame) -> pd
     start_time = time.time()
     merged_df = pd.merge_asof(left=trades, right=book, on='timestamp', direction='backward')
     log.info(f"  - Merge completed in {time.time() - start_time:.2f} seconds.")
-    merged_df.dropna(inplace=True)
+    
+    # --- START OF FIX ---
+    # Drop rows only if the merge failed to find a corresponding book entry
+    merged_df.dropna(subset=['best_bid_price', 'best_ask_price'], inplace=True)
+    # --- END OF FIX ---
 
     # Basic features
     merged_df["mid_price"] = (merged_df["best_bid_price"] + merged_df["best_ask_price"]) / 2
