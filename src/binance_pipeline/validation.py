@@ -7,88 +7,119 @@ from typing import Annotated
 log = logging.getLogger(__name__)
 
 # ==================================
-# 1. Structural Guardrail Schema (Final )
+# 1. Structural Guardrail Schema
 # ==================================
 
 class EnrichedTickSchema(pa.SchemaModel):
     """Schema for the structurally validated enriched tick data."""
 
-        timestamp: Annotated[
-        'int64',
-        pa.Field(nullable=False, unique=True),
-        pa.Check(lambda s: s.is_monotonic_increasing, name="monotonic_increasing")
-    ]
+    timestamp: Series[int] = pa.Field(
+        nullable=False,
+        unique=True,
+        checks=pa.Check(lambda s: s.is_monotonic_increasing, name="monotonic_increasing")
+    )
 
-    price: Annotated['float64', pa.Field(nullable=False), pa.Check.gt(0)]
-    best_bid_price: Annotated['float64', pa.Field(nullable=False), pa.Check.gt(0)]
-    best_ask_price: Annotated['float64', pa.Field(nullable=False), pa.Check.gt(0)]
+    price: Series[float] = pa.Field(nullable=False, gt=0)
+    best_bid_price: Series[float] = pa.Field(nullable=False, gt=0)
+    best_ask_price: Series[float] = pa.Field(nullable=False, gt=0)
 
-    microprice: Annotated[
-        'float64', pa.Field(nullable=False, description="Microprice should not have any missing values after ffill.")
-    ]
+    microprice: Series[float] = pa.Field(
+        nullable=False,
+        description="Microprice should not have any missing values after ffill."
+    )
 
-    ofi: Annotated[
-        'float64', pa.Field(nullable=False, description="Order Flow Imbalance should not have missing values after fillna(0).")
-    ]
+    ofi: Series[float] = pa.Field(
+        nullable=False,
+        description="Order Flow Imbalance should not have missing values after fillna(0)."
+    )
 
-    book_imbalance: Annotated[
-        'float64', pa.Field(nullable=False), pa.Check.in_range(-1.0, 1.0)
-    ]
+    book_imbalance: Series[float] = pa.Field(
+        nullable=False,
+        in_range={"min_value": -1.0, "max_value": 1.0}
+    )
 
-    spread: Annotated[
-        'float64', pa.Field(nullable=False), pa.Check.ge(0)
-    ]
+    spread: Series[float] = pa.Field(nullable=False, ge=0)
 
     @pa.dataframe_check
     def check_ask_greater_than_bid(cls, df: DataFrame) -> Series[bool]:
-        """Ensures that the best ask price is always greater than the best bid price."""
+        """Ensures best ask > best bid at all times."""
         return df["best_ask_price"] > df["best_bid_price"]
 
     class Config:
         coerce = True
 
+
 # ==================================
-# 2. Validator Nodes 
+# 2. Validator Nodes
 # ==================================
 
 def validate_enriched_tick_data(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Applies the structural guardrail to the enriched tick data.
+    Applies the structural guardrail to enriched tick data.
     Halts the pipeline if validation fails.
     """
     log.info(f"Applying STRUCTURAL guardrail to enriched_tick_data (shape: {df.shape})...")
-    # Add a check for the empty DataFrame to provide a better warning.
+
     if df.empty:
-        log.warning("Input to 'validate_enriched_tick_data' is an empty DataFrame. Validation will pass, but no data will be processed downstream.")
-        return df # Pass the empty frame through
+        log.warning("Input DataFrame is empty — skipping structural validation.")
+        return df
 
     try:
         EnrichedTickSchema.validate(df, lazy=True)
         log.info("✅ Structural guardrail PASSED for enriched_tick_data.")
         return df
+
     except pa.errors.SchemaErrors as err:
         log.error("🔥 Structural guardrail FAILED for enriched_tick_data!")
-        log.error("Validation failure details below:")
         log.error(err.failure_cases)
-        raise err # Halt the pipeline
+        raise
+
 
 def validate_features_data_logic(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Applies the logical guardrail to the final features data.
-    Checks for plausible market dynamics.
+    Applies the logical guardrail to the final feature set.
+    Checks plausible market dynamics (returns vs CVD correlation).
     """
     log.info(f"Applying LOGICAL guardrail to features_data (shape: {df.shape})...")
-    if df.empty:
-        log.warning("Input to 'validate_features_data_logic' is an empty DataFrame. Skipping logical checks.")
-        return guardrailry:
-        correlation = df['returns'].corr(df['cvd_taker_50'])
-        log.info(f"Correlation(returns, cvd_taker_50) = {correlation:.4f}")
-        
-        assert correlation > 0.001, f"Logical check failed: Correlation between returns and CVD is not positive ({correlation:.4f}). This indicates a potential bug in feature logic."
 
-        log.info("✅ Logical guardrail PASSED for features_data.")
+    if df.empty:
+        log.warning("Input DataFrame is empty — skipping logical validation.")
         return df
-    except Exception as e:
-        log.error("🔥 Logical guardrail FAILED for features_data!")
-        raise e # Halt the pipeUnchangedangedanged
-    
+
+    correlation = df['returns'].corr(df['cvd_taker_50'])
+    log.info(f"Correlation(returns, cvd_taker_50) = {correlation:.4f}")
+
+    if correlation <= 0.001:
+        raise AssertionError(
+            f"Logical check failed: Correlation between returns and CVD "
+            f"must be positive ({correlation:.4f}). Potential feature logic failure."
+        )
+
+    log.info("✅ Logical guardrail PASSED for features_data.")
+    return df
+
+
+# ==================================
+# 3. Return Pipeline
+# ==================================
+
+def create_pipeline(
+    initial_merge_node,
+    tick_feature_node,
+    structural_guardrail_node,
+    resample_and_feature_nodes,
+    merge_node,
+    logical_guardrail_node,
+):
+    """Returns the final Kedro pipeline with guardrails included."""
+    from kedro.pipeline import Pipeline
+
+    return Pipeline([
+        initial_merge_node,
+        tick_feature_node,
+        structural_guardrail_node,
+        *resample_and_feature_nodes,
+        merge_node,
+        logical_guardrail_node,
+    ])
+        
