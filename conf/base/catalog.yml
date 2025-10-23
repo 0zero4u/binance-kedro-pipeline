@@ -3,12 +3,30 @@
 book_raw:
   type: kedro_datasets.pandas.CSVDataset
   filepath: "data/01_raw/book_ticker.csv"
-  load_args: {names: ["event_time", "symbol", "best_bid_price", "best_bid_qty", "best_ask_price", "best_ask_qty", "transaction_time", "update_id"]}
+  load_args:
+    names: ["event_time", "symbol", "best_bid_price", "best_bid_qty", "best_ask_price", "best_ask_qty", "transaction_time", "update_id"]
+    dtype:
+      event_time: int64
+      symbol: str
+      best_bid_price: float64
+      best_bid_qty: float64
+      best_ask_price: float64
+      best_ask_qty: float64
+      transaction_time: int64
+      update_id: int64
 
 trade_raw:
   type: kedro_datasets.pandas.CSVDataset
   filepath: "data/01_raw/trades.csv"
-  load_args: {names: ["id", "price", "qty", "quote_qty", "time", "is_buyer_maker"]}
+  load_args:
+    names: ["id", "price", "qty", "quote_qty", "time", "is_buyer_maker"]
+    dtype:
+      id: int64
+      price: float64
+      qty: float64
+      quote_qty: float64
+      time: int64
+      is_buyer_maker: bool
 
 # 02_intermediate
 merged_tick_data: {type: kedro_datasets.pandas.ParquetDataset, filepath: "data/02_intermediate/merged_tick_data.parquet"}
