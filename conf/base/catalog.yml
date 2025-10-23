@@ -11,22 +11,22 @@ trade_raw:
 
 # 02_intermediate
 merged_tick_data: {type: pandas.ParquetDataSet, filepath: "data/02_intermediate/merged_tick_data.parquet"}
-enriched_tick_data_unvalidated: {type: pandas.MemoryDataSet}
-enriched_tick_data: {type: pandas.MemoryDataSet}
-resampled_data_100ms: {type: pandas.MemoryDataSet}
-resampled_data_3s: {type: pandas.MemoryDataSet}
-resampled_data_15s: {type: pandas.MemoryDataSet}
-resampled_data_1min: {type: pandas.MemoryDataSet}
-resampled_data_3min: {type: pandas.MemoryDataSet}
+enriched_tick_data_unvalidated: {type: MemoryDataSet}
+enriched_tick_data: {type: MemoryDataSet}
+resampled_data_100ms: {type: MemoryDataSet}
+resampled_data_3s: {type: MemoryDataSet}
+resampled_data_15s: {type: MemoryDataSet}
+resampled_data_1min: {type: MemoryDataSet}
+resampled_data_3min: {type: MemoryDataSet}
 
-features_data_100ms: {type: pandas.MemoryDataSet}
-features_data_3s: {type: pandas.MemoryDataSet}
-features_data_15s: {type: pandas.MemoryDataSet}
-features_data_1min: {type: pandas.MemoryDataSet}
-features_data_3min: {type: pandas.MemoryDataSet}
+features_data_100ms: {type: MemoryDataSet}
+features_data_3s: {type: MemoryDataSet}
+features_data_15s: {type: MemoryDataSet}
+features_data_1min: {type: MemoryDataSet}
+features_data_3min: {type: MemoryDataSet}
 
 # 03_primary
-features_data_unvalidated: {type: pandas.MemoryDataSet}
+features_data_unvalidated: {type: MemoryDataSet}
 features_data: {type: pandas.ParquetDataSet, filepath: "data/03_primary/features_data.parquet"}
 
 # 05_model_input (LGBM)
