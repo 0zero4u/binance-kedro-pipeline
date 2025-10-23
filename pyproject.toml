@@ -35,5 +35,5 @@ dependencies = [
     "ta>=0.11.0",
     "requests",
     "tqdm",
-    "pandera>=0.15.0",
+    "pandera==0.15.0",
 ]
