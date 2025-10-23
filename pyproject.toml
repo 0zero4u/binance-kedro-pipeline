@@ -6,7 +6,6 @@ dependencies = [
     "kedro~=0.18.14",
     # FINAL FIX: Pin to a compatible version and use correct extras
     "kedro-datasets[pandas, pickle]~=2.0.0",
-    "pandas==2.2.2",
     "numpy==1.26.4",
     "pyarrow",
     "scipy>=1.10.0",
