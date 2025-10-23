@@ -9,28 +9,33 @@ from typing import Dict, Any
 log = logging.getLogger(__name__)
 
 # Re-use the high-performance labeling from the LGBM pipeline
-from binance_pipeline.pipelines.lgbm.nodes import generate_triple_barrier_labels
+from binance_pipeline.pipelines.data_science.nodes import generate_triple_barrier_labels
 
-def generate_arf_features(df: pd.DataFrame) -> pd.DataFrame:
-    """Generates percentile rank features for the ARF model."""
+def generate_arf_features(df: pd.DataFrame, params: Dict[str, Any]) -> pd.DataFrame:
+    """Generates percentile rank features for the ARF model using parameters."""
     log.info("Generating ARF features with multi-window percentile ranks...")
     
-    PERCENTILE_WINDOWS = {'5s': 50, '10s': 100, '30s': 300, '1min': 600, '3min': 1800, '5min': 3000}
-    
+    # Use percentile windows from parameters, not hardcoded
+    percentile_windows = params.get('percentile_windows', {})
+    if not percentile_windows:
+        log.warning("No percentile_windows found in arf.feature_params. Skipping ARF feature generation.")
+        return df.copy()
+
     features_to_rank = ['cvd_taker_50', 'vol_regime_20', 'ofi_50', 'vpin_proxy_50', 'momentum_20', 'rsi_14']
     
+    df_out = df.copy()
     for feature in features_to_rank:
-        if feature in df.columns:
-            for name, window_size in PERCENTILE_WINDOWS.items():
-                df[f'{feature}_pct_rank_{name}'] = df[feature].rolling(
+        if feature in df_out.columns:
+            for name, window_size in percentile_windows.items():
+                df_out[f'{feature}_pct_rank_{name}'] = df_out[feature].rolling(
                     window=window_size, min_periods=int(window_size / 4)
                 ).apply(lambda x: pd.Series(x).rank(pct=True).iloc[-1], raw=False)
     
-    df.replace([np.inf, -np.inf], np.nan, inplace=True)
-    df.dropna(inplace=True)
+    df_out.replace([np.inf, -np.inf], np.nan, inplace=True)
+    df_out.dropna(inplace=True)
     
-    log.info(f"ARF feature generation complete. Final shape: {df.shape}")
-    return df.reset_index(drop=True)
+    log.info(f"ARF feature generation complete. Final shape: {df_out.shape}")
+    return df_out.reset_index(drop=True)
 
 def fit_robust_scaler(df: pd.DataFrame) -> RobustScaler:
     """Fits a RobustScaler, which is better for data with outliers."""
