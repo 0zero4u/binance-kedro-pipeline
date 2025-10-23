@@ -1,18 +1,19 @@
 from kedro.pipeline import Pipeline, node
 from .nodes import (
     generate_arf_features,
-    generate_triple_barrier_labels,
     fit_robust_scaler,
     apply_robust_scaling,
     train_arf_ensemble,
     select_best_arf_model
 )
+from binance_pipeline.pipelines.data_science.nodes import generate_triple_barrier_labels
+
 
 def create_pipeline(**kwargs) -> Pipeline:
     return Pipeline([
         node(
             func=generate_arf_features,
-            inputs="features_data",
+            inputs=["features_data", "params:arf.feature_params"],
             outputs="features_data_arf",
             name="generate_arf_features_node",
         ),
@@ -36,7 +37,7 @@ def create_pipeline(**kwargs) -> Pipeline:
         ),
         node(
             func=train_arf_ensemble,
-            inputs="scaled_data_arf",
+            inputs=["scaled_data_arf", "params:arf.training_params"],
             outputs="arf_training_results",
             name="train_arf_ensemble_node",
         ),
@@ -47,3 +48,4 @@ def create_pipeline(**kwargs) -> Pipeline:
             name="select_best_arf_model_node",
         ),
     ])
+            
