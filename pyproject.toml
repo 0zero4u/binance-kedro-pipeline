@@ -1,7 +1,9 @@
+
 [tool.kedro]
 package_name = "binance_pipeline"
 project_name = "Binance Pipeline"
 project_version = "0.18.14"
+kedro_init_version = "0.18.14"
 
 [tool.isort]
 profile = "black"
