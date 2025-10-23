@@ -1,4 +1,5 @@
 from kedro.pipeline import Pipeline, node
+from functools import partial  # <-- IMPORT PARTIAL
 from .nodes import (
     merge_book_trade_asof,
     calculate_tick_level_features,
@@ -37,11 +38,11 @@ def create_pipeline(**kwargs) -> Pipeline:
     for tf in timeframes:
         resample_and_feature_nodes.extend([
             node(
-                func=resample_to_time_bars,
+                # CORRECTED SYNTAX: Use partial to pass the 'rule' argument
+                func=partial(resample_to_time_bars, rule=tf),
                 inputs="enriched_tick_data",
                 outputs=f"resampled_data_{tf}",
                 name=f"resample_to_{tf}_bars_node",
-                kwargs={"rule": tf},
             ),
             node(
                 func=generate_bar_features,
@@ -74,4 +75,3 @@ def create_pipeline(**kwargs) -> Pipeline:
         merge_node,
         logical_guardrail_node
     ])
-                
