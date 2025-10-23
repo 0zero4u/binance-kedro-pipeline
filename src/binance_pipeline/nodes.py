@@ -55,8 +55,9 @@ def calculate_tick_level_features(df: pd.DataFrame) -> pd.DataFrame:
     Calculates features at the tick level before resampling.
     - Microprice: A volume-weighted price that is more robust than mid-price.
     - Taker Flow: The signed volume of aggressive trades (market orders).
+    - Order Flow Imbalance (OFI): The net pressure on bid vs. ask side.
     """
-    log.info("Calculating tick-level features: Microprice and Taker Flow...")
+    log.info("Calculating tick-level features: Microprice, Taker Flow, and OFI...")
 
     # Calculate Microprice
     df['microprice'] = (
@@ -73,6 +74,22 @@ def calculate_tick_level_features(df: pd.DataFrame) -> pd.DataFrame:
         lambda row: row['qty'] if not row['is_buyer_maker'] else -row['qty'],
         axis=1
     )
+
+    # --- NEW: Calculate Order Flow Imbalance (OFI) ---
+    # OFI measures the net pressure on the bid vs. ask side by looking at quantity changes
+    # at the best bid/ask prices.
+    bid_price_diff = df['best_bid_price'].diff()
+    ask_price_diff = df['best_ask_price'].diff()
+    bid_qty_diff = df['best_bid_qty'].diff()
+    ask_qty_diff = df['best_ask_qty'].diff()
+
+    # Increase in bid quantity when price holds or increases is buying pressure
+    bid_pressure = np.where(bid_price_diff >= 0, bid_qty_diff, 0)
+    # Increase in ask quantity when price holds or decreases is selling pressure
+    ask_pressure = np.where(ask_price_diff <= 0, ask_qty_diff, 0)
+    
+    df['ofi'] = bid_pressure - ask_pressure
+    df['ofi'].fillna(0, inplace=True)
     
     log.info("Tick-level feature calculation complete.")
     return df
@@ -88,7 +105,8 @@ def resample_to_time_bars(df: pd.DataFrame, rule: str = "100ms") -> pd.DataFrame
         'mid_price': 'last', 
         'spread': 'mean',
         'microprice': 'ohlc', # Aggregate microprice like a normal price
-        'taker_flow': 'sum'   # Sum the taker flow over the bar
+        'taker_flow': 'sum',  # Sum the taker flow over the bar
+        'ofi': 'sum'          # NEW: Sum the OFI over the bar
     }
     resampled_df = df.resample(rule).agg(aggregations)
     resampled_df.columns = ['_'.join(col).strip() for col in resampled_df.columns.values]
@@ -98,7 +116,8 @@ def resample_to_time_bars(df: pd.DataFrame, rule: str = "100ms") -> pd.DataFrame
         'qty_sum': 'volume', 'mid_price_last': 'mid_price', 'spread_mean': 'spread',
         'microprice_open': 'micro_open', 'microprice_high': 'micro_high',
         'microprice_low': 'micro_low', 'microprice_close': 'micro_close',
-        'taker_flow_sum': 'taker_flow'
+        'taker_flow_sum': 'taker_flow',
+        'ofi_sum': 'ofi'
     }, inplace=True)
     # MODIFIED: Forward fill all price-like columns
     price_cols = ['open', 'high', 'low', 'close', 'mid_price', 'spread', 
@@ -106,6 +125,7 @@ def resample_to_time_bars(df: pd.DataFrame, rule: str = "100ms") -> pd.DataFrame
     resampled_df[price_cols] = resampled_df[price_cols].ffill()
     resampled_df['volume'].fillna(0, inplace=True)
     resampled_df['taker_flow'].fillna(0, inplace=True)
+    resampled_df['ofi'].fillna(0, inplace=True)
     resampled_df.dropna(inplace=True)
     return resampled_df.reset_index()
 
@@ -136,6 +156,16 @@ def generate_bar_features(df: pd.DataFrame) -> pd.DataFrame:
     df['cvd_taker_velocity'] = df['cvd_taker_50'] - df['cvd_taker_50'].shift(1)
     df['cvd_taker_accel'] = df['cvd_taker_velocity'] - df['cvd_taker_velocity'].shift(1)
 
+    # --- NEW: Order Flow Imbalance (OFI) Pressure ---
+    log.info("Generating Order Flow Imbalance features...")
+    df['ofi_50'] = df['ofi'].rolling(window=50).sum()
+
+    # --- NEW: VPIN Proxy (Flow Toxicity) ---
+    log.info("Generating VPIN Proxy...")
+    # This proxy measures the intensity of aggressive orders (taker flow) relative to total volume.
+    # High values suggest more "toxic" or informed flow.
+    df['vpin_proxy_50'] = df['taker_flow'].abs().rolling(50).sum() / (df['volume'].rolling(50).sum() + 1e-10)
+
     df.replace([np.inf, -np.inf], np.nan, inplace=True)
     df.dropna(inplace=True)
     return df
@@ -155,7 +185,7 @@ def merge_multi_timeframe_features(base_features: pd.DataFrame, **other_features
         # MODIFIED: Be more specific about which columns are features to avoid OHLC duplication
         feature_cols = [c for c in df_to_merge.columns if c not in [
             'datetime', 'open', 'high', 'low', 'close', 'volume', 'mid_price', 'spread',
-            'micro_open', 'micro_high', 'micro_low', 'micro_close', 'taker_flow'
+            'micro_open', 'micro_high', 'micro_low', 'micro_close', 'taker_flow', 'ofi'
         ]]
         cols_to_rename = {col: col + suffix for col in feature_cols}
         df_to_merge = df_to_merge[['datetime'] + feature_cols].rename(columns=cols_to_rename)
@@ -165,4 +195,3 @@ def merge_multi_timeframe_features(base_features: pd.DataFrame, **other_features
     merged_df.dropna(inplace=True)
     log.info(f"Multi-timeframe merge complete. Final shape: {merged_df.shape}")
     return merged_df
-    
