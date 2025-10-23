@@ -1,3 +1,4 @@
+# 01_raw
 book_raw:
   type: pandas.CSVDataSet
   filepath: "data/01_raw/book_ticker.csv"
@@ -8,15 +9,9 @@ trade_raw:
   filepath: "data/01_raw/trades.csv"
   load_args: {names: ["id", "price", "qty", "quote_qty", "time", "is_buyer_maker"]}
 
-merged_tick_data:
-  type: pandas.ParquetDataSet
-  filepath: "data/02_intermediate/merged_tick_data.parquet"
-
-# NEW: Dataset for tick data with microprice and taker flow
-enriched_tick_data:
-  type: pandas.MemoryDataSet
-
-# --- Intermediate Datasets for Multi-Timeframe Feature Engineering ---
+# 02_intermediate
+merged_tick_data: {type: pandas.ParquetDataSet, filepath: "data/02_intermediate/merged_tick_data.parquet"}
+enriched_tick_data: {type: pandas.MemoryDataSet}
 resampled_data_100ms: {type: pandas.MemoryDataSet}
 resampled_data_3s: {type: pandas.MemoryDataSet}
 resampled_data_15s: {type: pandas.MemoryDataSet}
@@ -28,51 +23,33 @@ features_data_3s: {type: pandas.MemoryDataSet}
 features_data_15s: {type: pandas.MemoryDataSet}
 features_data_1min: {type: pandas.MemoryDataSet}
 features_data_3min: {type: pandas.MemoryDataSet}
-# --------------------------------------------------------------------
 
-features_data:
-  type: pandas.ParquetDataSet
-  filepath: "data/03_primary/features_data.parquet"
+# 03_primary
+features_data: {type: pandas.ParquetDataSet, filepath: "data/03_primary/features_data.parquet"}
 
+# 05_model_input (LGBM)
 labeled_data:
   type: pandas.ParquetDataSet
   filepath: "data/05_model_input/labeled_data.parquet"
   layer: model_input
 
+# 06_models (LGBM)
 lgbm_model:
   type: pickle.PickleDataSet
   filepath: "data/06_models/lgbm_price_movement_model.pkl"
   layer: models
 
+# 07_reporting (LGBM)
+lgbm_eval_results:
+  type: kedro.extras.datasets.json.JSONDataSet
+  filepath: "data/07_reporting/lgbm_evaluation.json"
+
 # ----------------------------------------------------------------
-# New Datasets for the ARF Pipeline
+# Datasets for the ARF Pipeline
 # ----------------------------------------------------------------
-features_data_arf:
-  type: pandas.ParquetDataSet
-  filepath: data/03_primary/features_data_arf.parquet
-  layer: primary
-
-labeled_data_arf:
-  type: pandas.ParquetDataSet
-  filepath: data/05_model_input/labeled_data_arf.parquet
-  layer: model_input
-
-unbiased_labeled_data_arf:
-  type: pandas.ParquetDataSet
-  filepath: data/05_model_input/unbiased_labeled_data_arf.parquet
-  layer: model_input
-
-scaled_unbiased_data_arf:
-  type: pandas.ParquetDataSet
-  filepath: data/05_model_input/scaled_unbiased_data_arf.parquet
-  layer: model_input
-
-hybrid_scaler:
-  type: pickle.PickleDataSet
-  filepath: data/06_models/hybrid_scaler.pkl
-  layer: models
-
-arf_model:
-  type: pickle.PickleDataSet
-  filepath: data/06_models/arf_price_movement_model.pkl
-  layer: models
+features_data_arf: {type: pandas.ParquetDataSet, filepath: data/03_primary/features_data_arf.parquet}
+labeled_data_arf: {type: pandas.ParquetDataSet, filepath: data/05_model_input/labeled_data_arf.parquet}
+scaled_data_arf: {type: pandas.ParquetDataSet, filepath: data/05_model_input/scaled_data_arf.parquet}
+robust_scaler: {type: pickle.PickleDataSet, filepath: data/06_models/robust_scaler.pkl}
+arf_training_results: {type: pickle.PickleDataSet, filepath: data/06_models/arf_training_results.pkl}
+arf_model: {type: pickle.PickleDataSet, filepath: data/06_models/arf_price_movement_model.pkl, layer: models}
