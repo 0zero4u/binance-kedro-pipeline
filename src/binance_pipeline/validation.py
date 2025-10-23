@@ -1,4 +1,3 @@
-
 import pandas as pd
 import pandera as pa
 from pandera.typing import DataFrame, Series
@@ -8,38 +7,53 @@ from typing import Annotated
 log = logging.getLogger(__name__)
 
 # ==================================
-# 1. Structural Guardrail Schema (Corrected Modern Syntax)
+# 1. Structural Guardrail Schema (FIXED Modern Syntax)
 # ==================================
 
 class EnrichedTickSchema(pa.SchemaModel):
     """Schema for the structurally validated enriched tick data."""
 
-    # CORRECTED: The type hint should be the dtype (int, float), not Series[dtype].
-    timestamp: Annotated[
-        int,
-        pa.Field(nullable=False, unique=True),
-        pa.Check(lambda s: s.is_monotonic_increasing, name="monotonic_increasing")
-    ]
+    # FIXED: Use Series[dtype] for Pandera SchemaModel, not just dtype
+    timestamp: Series[int] = pa.Field(
+        nullable=False,
+        unique=True,
+        checks=pa.Check(lambda s: s.is_monotonic_increasing, name="monotonic_increasing")
+    )
 
-    price: Annotated[float, pa.Field(nullable=False), pa.Check.gt(0)]
-    best_bid_price: Annotated[float, pa.Field(nullable=False), pa.Check.gt(0)]
-    best_ask_price: Annotated[float, pa.Field(nullable=False), pa.Check.gt(0)]
+    price: Series[float] = pa.Field(
+        nullable=False,
+        checks=pa.Check.gt(0)
+    )
+    
+    best_bid_price: Series[float] = pa.Field(
+        nullable=False,
+        checks=pa.Check.gt(0)
+    )
+    
+    best_ask_price: Series[float] = pa.Field(
+        nullable=False,
+        checks=pa.Check.gt(0)
+    )
 
-    microprice: Annotated[
-        float, pa.Field(nullable=False, description="Microprice should not have any missing values after ffill.")
-    ]
+    microprice: Series[float] = pa.Field(
+        nullable=False,
+        description="Microprice should not have any missing values after ffill."
+    )
 
-    ofi: Annotated[
-        float, pa.Field(nullable=False, description="Order Flow Imbalance should not have missing values after fillna(0).")
-    ]
+    ofi: Series[float] = pa.Field(
+        nullable=False,
+        description="Order Flow Imbalance should not have missing values after fillna(0)."
+    )
 
-    book_imbalance: Annotated[
-        float, pa.Field(nullable=False), pa.Check.in_range(-1.0, 1.0)
-    ]
+    book_imbalance: Series[float] = pa.Field(
+        nullable=False,
+        checks=pa.Check.in_range(-1.0, 1.0)
+    )
 
-    spread: Annotated[
-        float, pa.Field(nullable=False), pa.Check.ge(0)
-    ]
+    spread: Series[float] = pa.Field(
+        nullable=False,
+        checks=pa.Check.ge(0)
+    )
 
     @pa.dataframe_check
     def check_ask_greater_than_bid(cls, df: DataFrame) -> Series[bool]:
@@ -86,4 +100,3 @@ def validate_features_data_logic(df: pd.DataFrame) -> pd.DataFrame:
     except Exception as e:
         log.error("🔥 Logical guardrail FAILED for features_data!")
         raise e # Halt the pipeline
-    
