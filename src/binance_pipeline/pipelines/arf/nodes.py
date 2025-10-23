@@ -55,17 +55,17 @@ def apply_robust_scaling(df: pd.DataFrame, scaler: RobustScaler) -> pd.DataFrame
     
     return pd.concat([non_feature_cols, X_clipped_df], axis=1)
 
-def train_arf_ensemble(df: pd.DataFrame) -> Dict[str, Any]:
+def train_arf_ensemble(df: pd.DataFrame, params: Dict[str, Any]) -> Dict[str, Any]:
     """Trains an ensemble of ARF models and selects the best one."""
     log.info("Starting ARF ensemble training with progressive validation...")
     
     features = [col for col in df.columns if col not in ['datetime', 'label']]
     X, y = df[features], df['label']
     
+    # Dynamically create models from parameters
     models = {
-        'arf_conservative': forest.ARFClassifier(n_models=15, lambda_value=6, seed=42),
-        'arf_aggressive': forest.ARFClassifier(n_models=10, lambda_value=3, seed=43),
-        'arf_balanced': forest.ARFClassifier(n_models=12, lambda_value=4, seed=44)
+        name: forest.ARFClassifier(**model_params)
+        for name, model_params in params["models"].items()
     }
     metrics_dict = {name: metrics.Accuracy() + metrics.MacroF1() for name in models.keys()}
     
@@ -89,4 +89,3 @@ def train_arf_ensemble(df: pd.DataFrame) -> Dict[str, Any]:
 def select_best_arf_model(results: Dict[str, Any]):
     """Extracts the best model from the training results dictionary."""
     return results['best_model']
-    
