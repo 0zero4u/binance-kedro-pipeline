@@ -1,118 +1,82 @@
-import pandas as pd
-import pandera as pa
-from pandera.typing import DataFrame, Series
-import logging
-from typing import Annotated
+from kedro.pipeline import Pipeline, node
+from functools import partial
+from .nodes import (
+    merge_book_trade_asof,
+    calculate_tick_level_features,
+    resample_to_time_bars,
+    generate_bar_features,
+    merge_multi_timeframe_features,
+)
+from .validation import validate_enriched_tick_data, validate_features_data_logic
 
-log = logging.getLogger(__name__)
 
-# ==================================
-# 1. Structural Guardrail Schema
-# ==================================
+def create_pipeline(**kwargs) -> Pipeline:
+    timeframes = ["100ms", "3s", "15s", "1min", "3min"]
+    base_tf = timeframes[0]
+    other_tfs = timeframes[1:]
 
-class EnrichedTickSchema(pa.SchemaModel):
-    """Schema for the structurally validated enriched tick data."""
-
-    timestamp: Series[int] = pa.Field(
-        nullable=False,
-        unique=True,
-        checks=pa.Check(lambda s: s.is_monotonic_increasing, name="monotonic_increasing")
+    # Initial merge
+    initial_merge_node = node(
+        func=merge_book_trade_asof,
+        inputs=["book_raw", "trade_raw"],
+        outputs="merged_tick_data",
+        name="merge_ticks_asof_node",
     )
 
-    price: Series[float] = pa.Field(nullable=False, gt=0)
-    best_bid_price: Series[float] = pa.Field(nullable=False, gt=0)
-    best_ask_price: Series[float] = pa.Field(nullable=False, gt=0)
-
-    microprice: Series[float] = pa.Field(
-        nullable=False,
-        description="Microprice should not have any missing values after ffill."
+    # Enrich tick data
+    tick_feature_node = node(
+        func=calculate_tick_level_features,
+        inputs="merged_tick_data",
+        outputs="enriched_tick_data_unvalidated",
+        name="calculate_tick_features_node",
     )
 
-    ofi: Series[float] = pa.Field(
-        nullable=False,
-        description="Order Flow Imbalance should not have missing values after fillna(0)."
+    # Validate tick structure
+    structural_guardrail_node = node(
+        func=validate_enriched_tick_data,
+        inputs="enriched_tick_data_unvalidated",
+        outputs="enriched_tick_data",
+        name="structural_guardrail_node",
     )
 
-    book_imbalance: Series[float] = pa.Field(
-        nullable=False,
-        in_range={"min_value": -1.0, "max_value": 1.0}
+    # Resample + Feature generation per timeframe
+    resample_and_feature_nodes = []
+    for tf in timeframes:
+        resample_and_feature_nodes.extend([
+            node(
+                func=partial(resample_to_time_bars, rule=tf),
+                inputs="enriched_tick_data",
+                outputs=f"resampled_data_{tf}",
+                name=f"resample_to_{tf}_bars_node",
+            ),
+            node(
+                func=generate_bar_features,
+                inputs=f"resampled_data_{tf}",
+                outputs=f"features_data_{tf}",
+                name=f"generate_bar_features_{tf}_node",
+            ),
+        ])
+
+    # Merge multi-timeframe feature sets
+    merge_inputs = {
+        f"features_{tf.replace('min', 'm')}": f"features_data_{tf}"
+        for tf in other_tfs
+    }
+
+    merge_node = node(
+        func=merge_multi_timeframe_features,
+        inputs={"base_features": f"features_data_{base_tf}", **merge_inputs},
+        outputs="features_data_unvalidated",
+        name="merge_multi_timeframe_features_node",
     )
 
-    spread: Series[float] = pa.Field(nullable=False, ge=0)
-
-    @pa.dataframe_check
-    def check_ask_greater_than_bid(cls, df: DataFrame) -> Series[bool]:
-        """Ensures best ask > best bid at all times."""
-        return df["best_ask_price"] > df["best_bid_price"]
-
-    class Config:
-        coerce = True
-
-
-# ==================================
-# 2. Validator Nodes
-# ==================================
-
-def validate_enriched_tick_data(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Applies the structural guardrail to enriched tick data.
-    Halts the pipeline if validation fails.
-    """
-    log.info(f"Applying STRUCTURAL guardrail to enriched_tick_data (shape: {df.shape})...")
-
-    if df.empty:
-        log.warning("Input DataFrame is empty — skipping structural validation.")
-        return df
-
-    try:
-        EnrichedTickSchema.validate(df, lazy=True)
-        log.info("✅ Structural guardrail PASSED for enriched_tick_data.")
-        return df
-
-    except pa.errors.SchemaErrors as err:
-        log.error("🔥 Structural guardrail FAILED for enriched_tick_data!")
-        log.error(err.failure_cases)
-        raise
-
-
-def validate_features_data_logic(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Applies the logical guardrail to the final feature set.
-    Checks plausible market dynamics (returns vs CVD correlation).
-    """
-    log.info(f"Applying LOGICAL guardrail to features_data (shape: {df.shape})...")
-
-    if df.empty:
-        log.warning("Input DataFrame is empty — skipping logical validation.")
-        return df
-
-    correlation = df['returns'].corr(df['cvd_taker_50'])
-    log.info(f"Correlation(returns, cvd_taker_50) = {correlation:.4f}")
-
-    if correlation <= 0.001:
-        raise AssertionError(
-            f"Logical check failed: Correlation between returns and CVD "
-            f"must be positive ({correlation:.4f}). Potential feature logic failure."
-        )
-
-    log.info("✅ Logical guardrail PASSED for features_data.")
-    return df
-
-
-# ==================================
-# 3. Return Pipeline
-# ==================================
-
-def create_pipeline(
-    initial_merge_node,
-    tick_feature_node,
-    structural_guardrail_node,
-    resample_and_feature_nodes,
-    merge_node,
-    logical_guardrail_node,
-):
-    """Returns the final Kedro pipeline with guardrails included."""
-    from kedro.pipeline import Pipeline
+    # Logical validation
+    logical_guardrail_node = node(
+        func=validate_features_data_logic,
+        inputs="features_data_unvalidated",
+        outputs="features_data",
+        name="logical_guardrail_node",
+    )
 
     return Pipeline([
         initial_merge_node,
