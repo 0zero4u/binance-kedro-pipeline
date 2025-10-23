@@ -1,3 +1,4 @@
+
 import pandas as pd
 import pandera as pa
 from pandera.typing import DataFrame, Series
@@ -14,8 +15,14 @@ class EnrichedTickSchema(pa.SchemaModel):
     timestamp: Series[int] = pa.Field(
         nullable=False,
         unique=True,
-        # FINAL VERIFIED FIX: Calling the check as a method with ()
-        checks=[pa.Check.monotonic_increasing()],
+        # FINAL AND CORRECT FIX: Use a custom lambda check that leverages the
+        # underlying pandas Series property `.is_monotonic_increasing`.
+        checks=[
+            pa.Check(
+                lambda s: s.is_monotonic_increasing,
+                error="Timestamp must be monotonically increasing"
+            )
+        ],
         description="Unix timestamp in milliseconds, must be unique and increasing."
     )
     price: Series[float] = pa.Field(nullable=False, checks=[pa.Check.gt(0)])
