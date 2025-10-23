@@ -8,6 +8,11 @@ from typing import Dict, Any
 
 log = logging.getLogger(__name__)
 
+# --- MODIFICATION START ---
+# 1. Import the high-performance Numba helper functions
+from binance_pipeline.nodes import apply_rolling_numba, _rolling_rank_pct_numba
+# --- MODIFICATION END ---
+
 # Re-use the high-performance labeling from the LGBM pipeline
 from binance_pipeline.pipelines.data_science.nodes import generate_triple_barrier_labels
 
@@ -15,7 +20,6 @@ def generate_arf_features(df: pd.DataFrame, params: Dict[str, Any]) -> pd.DataFr
     """Generates percentile rank features for the ARF model using parameters."""
     log.info("Generating ARF features with multi-window percentile ranks...")
     
-    # Use percentile windows from parameters, not hardcoded
     percentile_windows = params.get('percentile_windows', {})
     if not percentile_windows:
         log.warning("No percentile_windows found in arf.feature_params. Skipping ARF feature generation.")
@@ -27,10 +31,20 @@ def generate_arf_features(df: pd.DataFrame, params: Dict[str, Any]) -> pd.DataFr
     for feature in features_to_rank:
         if feature in df_out.columns:
             for name, window_size in percentile_windows.items():
-                df_out[f'{feature}_pct_rank_{name}'] = df_out[feature].rolling(
-                    window=window_size, min_periods=int(window_size / 4)
-                ).apply(lambda x: pd.Series(x).rank(pct=True).iloc[-1], raw=False)
-    
+                # --- MODIFICATION START ---
+                # 2. Replace the slow pandas .apply() with the fast Numba version
+                
+                # BEFORE (Slow):
+                # df_out[f'{feature}_pct_rank_{name}'] = df_out[feature].rolling(
+                #     window=window_size, min_periods=int(window_size / 4)
+                # ).apply(lambda x: pd.Series(x).rank(pct=True).iloc[-1], raw=False)
+                
+                # AFTER (Fast):
+                df_out[f'{feature}_pct_rank_{name}'] = apply_rolling_numba(
+                    df_out[feature], _rolling_rank_pct_numba, window_size
+                )
+                # --- MODIFICATION END ---
+
     df_out.replace([np.inf, -np.inf], np.nan, inplace=True)
     df_out.dropna(inplace=True)
     
