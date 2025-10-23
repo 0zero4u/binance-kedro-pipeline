@@ -14,12 +14,13 @@ class EnrichedTickSchema(pa.SchemaModel):
     timestamp: Series[int] = pa.Field(
         nullable=False,
         unique=True,
-        monotonic_increasing=True,  # CORRECTED: Use direct keyword argument
+        # CORRECTED: Use the robust checks=[...] list syntax with the right method name.
+        checks=[pa.Check.monotonic_increasing()],
         description="Unix timestamp in milliseconds, must be unique and increasing."
     )
-    price: Series[float] = pa.Field(nullable=False, gt=0)  # CORRECTED: Use 'gt' for 'greater than'
-    best_bid_price: Series[float] = pa.Field(nullable=False, gt=0)
-    best_ask_price: Series[float] = pa.Field(nullable=False, gt=0)
+    price: Series[float] = pa.Field(nullable=False, checks=[pa.Check.gt(0)])
+    best_bid_price: Series[float] = pa.Field(nullable=False, checks=[pa.Check.gt(0)])
+    best_ask_price: Series[float] = pa.Field(nullable=False, checks=[pa.Check.gt(0)])
     microprice: Series[float] = pa.Field(
         nullable=False,
         description="Microprice should not have any missing values after ffill."
@@ -30,12 +31,12 @@ class EnrichedTickSchema(pa.SchemaModel):
     )
     book_imbalance: Series[float] = pa.Field(
         nullable=False,
-        in_range={"min_value": -1.0, "max_value": 1.0},  # CORRECTED: Use 'in_range' with a dict
+        checks=[pa.Check.in_range(-1.0, 1.0)],
         description="Book imbalance must be between -1 and 1."
     )
     spread: Series[float] = pa.Field(
         nullable=False,
-        ge=0,  # CORRECTED: Use 'ge' for 'greater than or equal to'
+        checks=[pa.Check.ge(0)],
         description="Spread cannot be negative."
     )
 
@@ -46,6 +47,8 @@ class EnrichedTickSchema(pa.SchemaModel):
 
 # ==================================
 # 2. Validator Nodes
+# =
+# ... (The rest of the file is unchanged and correct) ...
 # ==================================
 
 def validate_enriched_tick_data(df: pd.DataFrame) -> pd.DataFrame:
@@ -74,7 +77,7 @@ def validate_features_data_logic(df: pd.DataFrame) -> pd.DataFrame:
         # Check 1: Correlation between order flow and returns should be positive
         correlation = df['returns'].corr(df['cvd_taker_50'])
         log.info(f"Correlation(returns, cvd_taker_50) = {correlation:.4f}")
-        
+
         # A very weak positive correlation is expected. If it's negative, something is likely wrong.
         assert correlation > 0.001, f"Logical check failed: Correlation between returns and CVD is not positive ({correlation:.4f}). This indicates a potential bug in feature logic."
 
@@ -83,4 +86,3 @@ def validate_features_data_logic(df: pd.DataFrame) -> pd.DataFrame:
     except Exception as e:
         log.error("🔥 Logical guardrail FAILED for features_data!")
         raise e # Halt the pipeline
-    
