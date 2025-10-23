@@ -1,13 +1,8 @@
-
 import pandas as pd
 import pandera as pa
-# --- START OF FIX ---
-# Import Series from pandera.typing to use the standard SchemaModel API
 from pandera.typing import DataFrame, Series
-# --- END OF FIX ---
 import logging
 from typing import Annotated
-import numpy as np
 
 log = logging.getLogger(__name__)
 
@@ -15,38 +10,38 @@ log = logging.getLogger(__name__)
 # 1. Structural Guardrail Schema (Final )
 # ==================================
 
-# --- START OF FIX ---
-# Refactored the schema to use the standard, more robust pandera API.
-# This replaces the problematic `Annotated` syntax with `Series[dtype] = pa.Field(...)`,
-# which resolves the internal `ValueError: no signature found`.
 class EnrichedTickSchema(pa.SchemaModel):
     """Schema for the structurally validated enriched tick data."""
 
-    timestamp: Series[int] = pa.Field(
-        nullable=False,
-        unique=True,
-        checks=[pa.Check(lambda s: s.is_monotonic_increasing, name="monotonic_increasing")]
-    )
+    # --- START OF FIX ---
+    # Replaced numpy types with native Python types (int, float) as required
+    # by Pandera's signature inspection for SchemaModel.
+    timestamp: Annotated[
+        int,
+        pa.Field(nullable=False, unique=True),
+        pa.Check(lambda s: s.is_monotonic_increasing, name="monotonic_increasing")
+    ]
 
-    price: Series[float] = pa.Field(nullable=False, checks=[pa.Check.gt(0)])
-    best_bid_price: Series[float] = pa.Field(nullable=False, checks=[pa.Check.gt(0)])
-    best_ask_price: Series[float] = pa.Field(nullable=False, checks=[pa.Check.gt(0)])
+    price: Annotated[float, pa.Field(nullable=False), pa.Check.gt(0)]
+    best_bid_price: Annotated[float, pa.Field(nullable=False), pa.Check.gt(0)]
+    best_ask_price: Annotated[float, pa.Field(nullable=False), pa.Check.gt(0)]
 
-    microprice: Series[float] = pa.Field(
-        nullable=False, description="Microprice should not have any missing values after ffill."
-    )
+    microprice: Annotated[
+        float, pa.Field(nullable=False, description="Microprice should not have any missing values after ffill.")
+    ]
 
-    ofi: Series[float] = pa.Field(
-        nullable=False, description="Order Flow Imbalance should not have missing values after fillna(0)."
-    )
+    ofi: Annotated[
+        float, pa.Field(nullable=False, description="Order Flow Imbalance should not have missing values after fillna(0).")
+    ]
 
-    book_imbalance: Series[float] = pa.Field(
-        nullable=False, checks=[pa.Check.in_range(-1.0, 1.0)]
-    )
+    book_imbalance: Annotated[
+        float, pa.Field(nullable=False), pa.Check.in_range(-1.0, 1.0)
+    ]
 
-    spread: Series[float] = pa.Field(
-        nullable=False, checks=[pa.Check.ge(0)]
-    )
+    spread: Annotated[
+        float, pa.Field(nullable=False), pa.Check.ge(0)
+    ]
+    # --- END OF FIX ---
 
     @pa.dataframe_check
     def check_ask_greater_than_bid(cls, df: DataFrame) -> Series[bool]:
@@ -55,7 +50,6 @@ class EnrichedTickSchema(pa.SchemaModel):
 
     class Config:
         coerce = True
-# --- END OF FIX ---
 
 # ==================================
 # 2. Validator Nodes 
