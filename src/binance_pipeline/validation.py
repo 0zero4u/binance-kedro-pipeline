@@ -1,3 +1,4 @@
+
 import pandas as pd
 import pandera as pa
 from pandera.typing import DataFrame, Series
@@ -8,26 +9,25 @@ log = logging.getLogger(__name__)
 class EnrichedTickSchema(pa.SchemaModel):
     """Schema for the structurally validated enriched tick data."""
 
-    timestamp: Series[int] = pa.Field(nullable=False, unique=True)
+    # --- START OF FIX ---
+    # Removed `unique=True` because multiple trades can occur at the same millisecond.
+    # The `timestamp_monotonic` check is the correct and sufficient constraint.
+    timestamp: Series[int] = pa.Field(nullable=False)
+    # --- END OF FIX ---
 
     price: Series[float] = pa.Field(nullable=False)
-
     best_bid_price: Series[float] = pa.Field(nullable=False)
-
     best_ask_price: Series[float] = pa.Field(nullable=False)
-
     microprice: Series[float] = pa.Field(nullable=False)
-
     ofi: Series[float] = pa.Field(nullable=False)
-
     book_imbalance: Series[float] = pa.Field(nullable=False)
-
     spread: Series[float] = pa.Field(nullable=False)
 
     # Column-level checks as SchemaModel validators:
     
     @pa.check("timestamp")
     def timestamp_monotonic(cls, series: Series[int]) -> Series[bool]:
+        # This allows for duplicate values, as long as they are in order.
         return series.is_monotonic_increasing
     
     @pa.check("price", "best_bid_price", "best_ask_price")
@@ -51,7 +51,16 @@ class EnrichedTickSchema(pa.SchemaModel):
 
 
 def validate_enriched_tick_data(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Applies the structural guardrail to the enriched tick data.
+    Halts the pipeline if validation fails.
+    """
     log.info(f"Applying STRUCTURAL guardrail to enriched_tick_data (shape: {df.shape})...")
+    # Add a check for the empty DataFrame to provide a better warning.
+    if df.empty:
+        log.warning("Input to 'validate_enriched_tick_data' is an empty DataFrame. Validation will pass, but no data will be processed downstream.")
+        return df
+
     try:
         EnrichedTickSchema.validate(df, lazy=True)
         log.info("✅ Structural guardrail PASSED for enriched_tick_data.")
@@ -63,11 +72,21 @@ def validate_enriched_tick_data(df: pd.DataFrame) -> pd.DataFrame:
         raise err
 
 def validate_features_data_logic(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Applies the logical guardrail to the final features data.
+    Checks for plausible market dynamics.
+    """
     log.info(f"Applying LOGICAL guardrail to features_data (shape: {df.shape})...")
+    if df.empty:
+        log.warning("Input to 'validate_features_data_logic' is an empty DataFrame. Skipping logical checks.")
+        return df
+
     try:
         correlation = df['returns'].corr(df['cvd_taker_50'])
-        log.info(f"Correlation(returns, cvd_taker_50) = {correlation:.4f}")
+        log.info(f"Correlation(returns, cvd_taker__50) = {correlation:.4f}")
+        
         assert correlation > 0.001, f"Logical check failed: Correlation between returns and CVD is not positive ({correlation:.4f}). This indicates a potential bug in feature logic."
+
         log.info("✅ Logical guardrail PASSED for features_data.")
         return df
     except Exception as e:
