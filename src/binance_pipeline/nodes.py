@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 from scipy.fft import fft, fftfreq
 from typing import Dict, Tuple
+import numba
 
 log = logging.getLogger(__name__)
 
@@ -153,6 +154,55 @@ def resample_to_time_bars(df: pd.DataFrame, rule: str = "100ms") -> pd.DataFrame
     resampled_df.dropna(inplace=True)
     return resampled_df.reset_index()
 
+
+# =============================================================================
+# High-Performance Helper Functions for Feature Engineering
+# =============================================================================
+
+@numba.jit(nopython=True, fastmath=True)
+def _rolling_slope_numba(y: np.ndarray, window: int) -> np.ndarray:
+    """Numba-accelerated rolling linear regression slope."""
+    n = len(y)
+    out = np.full(n, np.nan)
+    # Precompute for x = 0, 1, ..., window-1
+    x = np.arange(window)
+    sum_x = np.sum(x)
+    sum_x2 = np.sum(x * x)
+    denominator = window * sum_x2 - sum_x * sum_x
+    if denominator == 0:
+        return out
+    
+    for i in range(window - 1, n):
+        y_win = y[i - window + 1 : i + 1]
+        sum_y = np.sum(y_win)
+        sum_xy = np.sum(x * y_win)
+        slope = (window * sum_xy - sum_x * sum_y) / denominator
+        out[i] = slope
+    return out
+
+@numba.jit(nopython=True, fastmath=True)
+def _rolling_rank_pct_numba(y: np.ndarray, window: int) -> np.ndarray:
+    """Numba-accelerated rolling percentile rank of the last element."""
+    n = len(y)
+    out = np.full(n, np.nan)
+    for i in range(window - 1, n):
+        win = y[i - window + 1 : i + 1]
+        last_val = win[-1]
+        
+        count_le = 0
+        for val in win:
+            if val <= last_val:
+                count_le += 1
+        
+        out[i] = count_le / window
+    return out
+
+def apply_rolling_numba(series: pd.Series, func, window: int) -> pd.Series:
+    """Helper to apply a Numba JIT function on a rolling window of a pandas Series."""
+    values = series.to_numpy()
+    result = func(values, window)
+    return pd.Series(result, index=series.index, name=series.name)
+
 # --- Advanced Feature Engineering Node ---
 def generate_bar_features(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -257,20 +307,24 @@ def generate_bar_features(df: pd.DataFrame) -> pd.DataFrame:
         df[f'returns_kurt_{window}'] = df['returns'].rolling(window).kurt()
 
     # =======================
-    # 10. FOURIER FEATURES
+    # 10. FOURIER FEATURES (Corrected with rolling window)
     # =======================
     window_fft = 256
     if len(df) >= window_fft:
-        fft_vals = fft(df['close'].values)
-        fft_power = np.abs(fft_vals)**2
-        df['dominant_cycle_power'] = pd.Series(fft_power).rolling(window_fft).mean().values
+        # NOTE: True rolling FFT is very slow. This is an approximation.
+        # For a production system, a more optimized rolling FFT/spectral analysis library would be needed.
+        # The critical lookahead bias has been removed.
+        rolling_fft_power = df['close'].rolling(window_fft).apply(lambda x: np.max(np.abs(fft(x.values)[1:len(x)//2])**2) if len(x) > 2 else 0.0, raw=False)
+        df['dominant_cycle_power'] = rolling_fft_power
         df['dominant_cycle_power'].ffill(inplace=True)
 
     # =======================
-    # 11. REGIME DETECTION FEATURES
+    # 11. REGIME DETECTION FEATURES (OPTIMIZED)
     # =======================
     for window in [20, 50, 100]:
-        df[f'trend_strength_{window}'] = df['close'].rolling(window).apply(lambda x: np.polyfit(np.arange(len(x)), x, 1)[0], raw=True)
+        df[f'trend_strength_{window}'] = apply_rolling_numba(df['close'], _rolling_slope_numba, window)
+    
+    # Hurst exponent is very slow, keeping the original implementation for now.
     def hurst(ts):
         lags = range(2, 100)
         tau = [np.sqrt(np.std(np.subtract(ts[lag:], ts[:-lag]))) for lag in lags]
@@ -286,13 +340,13 @@ def generate_bar_features(df: pd.DataFrame) -> pd.DataFrame:
     df['cvd_momentum_div_50'] = (np.sign(df['momentum_50']) != np.sign(df['cvd_taker_50'])).astype(int)
     
     # =======================
-    # 13. PERCENTILE RANK FEATURES
+    # 13. PERCENTILE RANK FEATURES (OPTIMIZED)
     # =======================
     features_to_rank = ['cvd_taker_50', 'vol_regime_20', 'ofi_50', 'vpin_proxy_50', 'momentum_20', 'rsi_14']
     for feature in features_to_rank:
         if feature in df.columns:
             for window in [100, 600]: # short, medium
-                df[f'{feature}_pct_rank_{window}'] = df[feature].rolling(window).apply(lambda x: pd.Series(x).rank(pct=True).iloc[-1], raw=False)
+                df[f'{feature}_pct_rank_{window}'] = apply_rolling_numba(df[feature], _rolling_rank_pct_numba, window)
 
     # =======================
     # FINALIZATION
@@ -333,3 +387,4 @@ def merge_multi_timeframe_features(base_features: pd.DataFrame, **other_features
     log.info(f"Multi-timeframe merge complete. Final shape: {merged_df.shape}")
     
     return merged_df
+    
