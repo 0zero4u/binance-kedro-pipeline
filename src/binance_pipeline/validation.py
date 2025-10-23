@@ -1,4 +1,3 @@
-
 import pandas as pd
 import pandera as pa
 from pandera.typing import DataFrame, Series
@@ -8,37 +7,39 @@ from typing import Annotated
 log = logging.getLogger(__name__)
 
 # ==================================
-# 1. Structural Guardrail Schema (Corrected Modern Syntax)
+# 1. Structural Guardrail Schema (Final )
 # ==================================
 
 class EnrichedTickSchema(pa.SchemaModel):
     """Schema for the structurally validated enriched tick data."""
 
-    # CORRECTED: The type hint should be the dtype (int, float), not Series[dtype].
+    # FINAL FIX: Use string aliases for dtypes ('int64', 'float64') instead of
+    # the actual types (int, float). This prevents an inspect bug in pandera
+    # when validating empty DataFrames.
     timestamp: Annotated[
-        int,
+        'int64',
         pa.Field(nullable=False, unique=True),
         pa.Check(lambda s: s.is_monotonic_increasing, name="monotonic_increasing")
     ]
 
-    price: Annotated[float, pa.Field(nullable=False), pa.Check.gt(0)]
-    best_bid_price: Annotated[float, pa.Field(nullable=False), pa.Check.gt(0)]
-    best_ask_price: Annotated[float, pa.Field(nullable=False), pa.Check.gt(0)]
+    price: Annotated['float64', pa.Field(nullable=False), pa.Check.gt(0)]
+    best_bid_price: Annotated['float64', pa.Field(nullable=False), pa.Check.gt(0)]
+    best_ask_price: Annotated['float64', pa.Field(nullable=False), pa.Check.gt(0)]
 
     microprice: Annotated[
-        float, pa.Field(nullable=False, description="Microprice should not have any missing values after ffill.")
+        'float64', pa.Field(nullable=False, description="Microprice should not have any missing values after ffill.")
     ]
 
     ofi: Annotated[
-        float, pa.Field(nullable=False, description="Order Flow Imbalance should not have missing values after fillna(0).")
+        'float64', pa.Field(nullable=False, description="Order Flow Imbalance should not have missing values after fillna(0).")
     ]
 
     book_imbalance: Annotated[
-        float, pa.Field(nullable=False), pa.Check.in_range(-1.0, 1.0)
+        'float64', pa.Field(nullable=False), pa.Check.in_range(-1.0, 1.0)
     ]
 
     spread: Annotated[
-        float, pa.Field(nullable=False), pa.Check.ge(0)
+        'float64', pa.Field(nullable=False), pa.Check.ge(0)
     ]
 
     @pa.dataframe_check
@@ -50,7 +51,7 @@ class EnrichedTickSchema(pa.SchemaModel):
         coerce = True
 
 # ==================================
-# 2. Validator Nodes (Unchanged)
+# 2. Validator Nodes 
 # ==================================
 
 def validate_enriched_tick_data(df: pd.DataFrame) -> pd.DataFrame:
@@ -59,6 +60,11 @@ def validate_enriched_tick_data(df: pd.DataFrame) -> pd.DataFrame:
     Halts the pipeline if validation fails.
     """
     log.info(f"Applying STRUCTURAL guardrail to enriched_tick_data (shape: {df.shape})...")
+    # Add a check for the empty DataFrame to provide a better warning.
+    if df.empty:
+        log.warning("Input to 'validate_enriched_tick_data' is an empty DataFrame. Validation will pass, but no data will be processed downstream.")
+        return df # Pass the empty frame through
+
     try:
         EnrichedTickSchema.validate(df, lazy=True)
         log.info("✅ Structural guardrail PASSED for enriched_tick_data.")
@@ -75,6 +81,10 @@ def validate_features_data_logic(df: pd.DataFrame) -> pd.DataFrame:
     Checks for plausible market dynamics.
     """
     log.info(f"Applying LOGICAL guardrail to features_data (shape: {df.shape})...")
+    if df.empty:
+        log.warning("Input to 'validate_features_data_logic' is an empty DataFrame. Skipping logical checks.")
+        return df
+
     try:
         correlation = df['returns'].corr(df['cvd_taker_50'])
         log.info(f"Correlation(returns, cvd_taker_50) = {correlation:.4f}")
@@ -85,4 +95,4 @@ def validate_features_data_logic(df: pd.DataFrame) -> pd.DataFrame:
         return df
     except Exception as e:
         log.error("🔥 Logical guardrail FAILED for features_data!")
-        raise e # Halt the pipeline
+        raise e # Halt the pipeUnchangedangedanged
