@@ -1,4 +1,3 @@
-
 import pandas as pd
 import numpy as np
 from river import preprocessing, forest, metrics
@@ -12,10 +11,16 @@ log = logging.getLogger(__name__)
 def generate_river_features(df: pd.DataFrame) -> pd.DataFrame:
     """
     Generates features for the ARF model, now including percentile ranks
-    over multiple lookback windows for dynamic, adaptive normalization.
+    over multiple lookback windows for dynamic, adaptive normalization. This node now works on the rich,
+    pre-computed feature set.
     """
     log.info("Generating V2 features with multi-window percentile ranks...")
     
+    # --- Part 1: We will use the pre-computed features from the DE pipeline ---
+    
+    # --- Part 2: Calculate Percentile Rank Features on key features over multiple windows ---
+    # This transforms features into a measure of their relative strength
+    # compared to different time horizons, making them more robustly regime-adaptive.
     
     # Define windows in terms of number of 100ms bars
     PERCENTILE_WINDOWS = {
@@ -24,12 +29,20 @@ def generate_river_features(df: pd.DataFrame) -> pd.DataFrame:
         '3min': 1800     # Long-term, strategic context
     }
     
-    features_to_rank = ['cvd_taker_50', 'vol_regime']
+    # UPDATED: Expanded list of features to apply percentile ranking to.
+    # These are the most powerful, regime-sensitive features.
+    features_to_rank = [
+        'cvd_taker_50',   # Taker flow pressure
+        'vol_regime',     # Relative volatility
+        'ofi_50',         # Order book pressure
+        'vpin_proxy_50'   # Order flow toxicity / informed trading proxy
+    ]
     
     for feature in features_to_rank:
         for name, window_size in PERCENTILE_WINDOWS.items():
             log.info(f"Calculating {name} percentile rank for {feature}...")
             # The lambda function calculates the percentile rank of the most recent value in the window.
+            # `raw=False` ensures pandas passes a Series object to the lambda function.
             df[f'{feature}_pct_rank_{name}'] = df[feature].rolling(
                 window=window_size, min_periods=int(window_size / 2)
             ).apply(lambda x: pd.Series(x).rank(pct=True).iloc[-1], raw=False)
