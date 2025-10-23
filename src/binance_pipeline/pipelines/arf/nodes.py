@@ -11,31 +11,28 @@ log = logging.getLogger(__name__)
 def generate_river_features(df: pd.DataFrame) -> pd.DataFrame:
     """
     Generates features for the ARF model, now including percentile ranks
-    for dynamic, adaptive normalization.
+    for dynamic, adaptive normalization. This node now works on the rich,
+    pre-computed feature set.
     """
     log.info("Generating V2 features with percentile ranks...")
     
-    # --- Part 1: Calculate Base Features (as before) ---
-    df['order_flow'] = np.sign(df['close'] - df['open']) * df['volume']
-    df['order_flow'].fillna(0, inplace=True)
-    df['cvd_10'] = df['order_flow'].rolling(window=10).sum()
-    df['cvd_50'] = df['order_flow'].rolling(window=50).sum()
-    df['price_mom_5'] = np.log(df['close'] / df['close'].shift(5))
-    df['price_mom_20'] = np.log(df['close'] / df['close'].shift(20))
-    df['volatility_20'] = df['price_mom_5'].rolling(window=20).std()
+    # --- The old CVD calculations are removed as we now have superior taker_flow features ---
     
-    # --- Part 2: NEW - Calculate Percentile Rank Features ---
+    # --- Part 1: We will use the pre-computed features like 'cvd_taker_50' and 'volatility_20' ---
+    # These are now calculated in the main data engineering pipeline.
+    
+    # --- Part 2: Calculate Percentile Rank Features on the key new features ---
     # This transforms features into a measure of their relative strength
     # compared to the recent past, making them regime-adaptive.
-    PERCENTILE_WINDOW = 400 
+    PERCENTILE_WINDOW = 100 # Use the last 100 bars (10 seconds) for context.
     
     # The lambda function calculates the percentile rank of the most recent value in the window.
     # `raw=False` ensures pandas passes a Series object to the lambda function.
-    df['cvd_10_pct_rank'] = df['cvd_10'].rolling(
+    df['cvd_taker_50_pct_rank'] = df['cvd_taker_50'].rolling(
         window=PERCENTILE_WINDOW, min_periods=int(PERCENTILE_WINDOW/2)
     ).apply(lambda x: pd.Series(x).rank(pct=True).iloc[-1], raw=False)
     
-    df['volatility_20_pct_rank'] = df['volatility_20'].rolling(
+    df['vol_regime_pct_rank'] = df['vol_regime'].rolling(
         window=PERCENTILE_WINDOW, min_periods=int(PERCENTILE_WINDOW/2)
     ).apply(lambda x: pd.Series(x).rank(pct=True).iloc[-1], raw=False)
     
