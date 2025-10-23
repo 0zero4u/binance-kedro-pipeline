@@ -14,7 +14,7 @@ class EnrichedTickSchema(pa.SchemaModel):
     timestamp: Series[int] = pa.Field(
         nullable=False,
         unique=True,
-        # FINAL FIX: Use the robust checks=[...] list syntax with the correct method name.
+        # FINAL VERIFIED FIX: Calling the check as a method with ()
         checks=[pa.Check.monotonic_increasing()],
         description="Unix timestamp in milliseconds, must be unique and increasing."
     )
