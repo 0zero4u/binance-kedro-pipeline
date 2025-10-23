@@ -216,6 +216,7 @@ def generate_bar_features(df: pd.DataFrame) -> pd.DataFrame:
     # =======================
     # 1. BASIC TECHNICAL INDICATORS
     # =======================
+    log.info("  -> (1/13) Calculating basic technical indicators...")
     df['returns'] = df['close'].pct_change()
     df['log_returns'] = np.log(df['close'] / df['close'].shift(1))
     df['rsi_14'] = ta.momentum.RSIIndicator(close=df['close'], window=14).rsi()
@@ -229,6 +230,7 @@ def generate_bar_features(df: pd.DataFrame) -> pd.DataFrame:
     # =======================
     # 2. VOLATILITY FEATURES
     # =======================
+    log.info("  -> (2/13) Calculating volatility features...")
     df['gk_vol'] = 0.5 * np.log(df['high'] / df['low'])**2 - (2 * np.log(2) - 1) * np.log(df['close'] / df['open'])**2
     for window in [20, 50, 100]:
         df[f'gk_vol_{window}'] = df['gk_vol'].rolling(window=window).mean()
@@ -239,6 +241,7 @@ def generate_bar_features(df: pd.DataFrame) -> pd.DataFrame:
     # =======================
     # 3. MOMENTUM FEATURES
     # =======================
+    log.info("  -> (3/13) Calculating momentum features...")
     for period in [5, 10, 20, 50, 100]:
         df[f'momentum_{period}'] = df['close'] - df['close'].shift(period)
         df[f'momentum_pct_{period}'] = (df['close'] / df['close'].shift(period) - 1) * 100
@@ -248,6 +251,7 @@ def generate_bar_features(df: pd.DataFrame) -> pd.DataFrame:
     # =======================
     # 4. ORDER FLOW FEATURES
     # =======================
+    log.info("  -> (4/13) Calculating order flow features...")
     for window in [20, 50, 100, 200]:
         df[f'cvd_taker_{window}'] = df['taker_flow'].rolling(window=window).sum()
         df[f'cvd_velocity_{window}'] = df[f'cvd_taker_{window}'].diff(1)
@@ -259,6 +263,7 @@ def generate_bar_features(df: pd.DataFrame) -> pd.DataFrame:
     # =======================
     # 5. VOLUME FEATURES
     # =======================
+    log.info("  -> (5/13) Calculating volume features...")
     for window in [20, 50, 100]:
         df[f'volume_ma_{window}'] = df['volume'].rolling(window).mean()
         df[f'volume_ratio_{window}'] = df['volume'] / (df[f'volume_ma_{window}'] + 1e-10)
@@ -268,6 +273,7 @@ def generate_bar_features(df: pd.DataFrame) -> pd.DataFrame:
     # =======================
     # 6. SPREAD & LIQUIDITY FEATURES
     # =======================
+    log.info("  -> (6/13) Calculating spread & liquidity features...")
     for window in [20, 50]:
         df[f'amihud_{window}'] = abs(df['returns']).rolling(window).sum() / (df['volume'].rolling(window).sum() + 1e-10)
         rolling_cov = df['returns'].rolling(window).cov(df['taker_flow'])
@@ -281,6 +287,7 @@ def generate_bar_features(df: pd.DataFrame) -> pd.DataFrame:
     # =======================
     # 7. TEMPORAL FEATURES
     # =======================
+    log.info("  -> (7/13) Calculating temporal features...")
     df['hour'] = df['datetime'].dt.hour
     df['minute'] = df['datetime'].dt.minute
     df['day_of_week'] = df['datetime'].dt.dayofweek
@@ -293,6 +300,7 @@ def generate_bar_features(df: pd.DataFrame) -> pd.DataFrame:
     # =======================
     # 8. AUTOCORRELATION & LAG FEATURES
     # =======================
+    log.info("  -> (8/13) Calculating autocorrelation & lag features...")
     for lag in [1, 2, 3, 5, 10]:
         df[f'returns_lag_{lag}'] = df['returns'].shift(lag)
     for window in [50, 100]:
@@ -302,6 +310,7 @@ def generate_bar_features(df: pd.DataFrame) -> pd.DataFrame:
     # =======================
     # 9. STATISTICAL FEATURES
     # =======================
+    log.info("  -> (9/13) Calculating statistical features...")
     for window in [20, 50, 100]:
         df[f'returns_skew_{window}'] = df['returns'].rolling(window).skew()
         df[f'returns_kurt_{window}'] = df['returns'].rolling(window).kurt()
@@ -309,11 +318,9 @@ def generate_bar_features(df: pd.DataFrame) -> pd.DataFrame:
     # =======================
     # 10. FOURIER FEATURES (Corrected with rolling window)
     # =======================
+    log.info("  -> (10/13) Calculating fourier features...")
     window_fft = 256
     if len(df) >= window_fft:
-        # NOTE: True rolling FFT is very slow. This is an approximation.
-        # For a production system, a more optimized rolling FFT/spectral analysis library would be needed.
-        # The critical lookahead bias has been removed.
         rolling_fft_power = df['close'].rolling(window_fft).apply(lambda x: np.max(np.abs(fft(x.values)[1:len(x)//2])**2) if len(x) > 2 else 0.0, raw=False)
         df['dominant_cycle_power'] = rolling_fft_power
         df['dominant_cycle_power'].ffill(inplace=True)
@@ -321,27 +328,30 @@ def generate_bar_features(df: pd.DataFrame) -> pd.DataFrame:
     # =======================
     # 11. REGIME DETECTION FEATURES (OPTIMIZED)
     # =======================
+    log.info("  -> (11/13) Calculating regime detection features...")
     for window in [20, 50, 100]:
         df[f'trend_strength_{window}'] = apply_rolling_numba(df['close'], _rolling_slope_numba, window)
     
-    # Hurst exponent is very slow, keeping the original implementation for now.
     def hurst(ts):
         lags = range(2, 100)
         tau = [np.sqrt(np.std(np.subtract(ts[lag:], ts[:-lag]))) for lag in lags]
         poly = np.polyfit(np.log(lags), np.log(tau), 1)
         return poly[0] * 2.0
     if len(df) > 100:
+        log.info("    (Note: Hurst exponent calculation is very slow)")
         df['hurst_100'] = df['close'].rolling(100).apply(hurst, raw=True)
     
     # =======================
     # 12. INTERACTION FEATURES
     # =======================
+    log.info("  -> (12/13) Calculating interaction features...")
     df['mom_vol_ratio_20'] = df['momentum_20'] / (df['realized_vol_20'] + 1e-10)
     df['cvd_momentum_div_50'] = (np.sign(df['momentum_50']) != np.sign(df['cvd_taker_50'])).astype(int)
     
     # =======================
     # 13. PERCENTILE RANK FEATURES (OPTIMIZED)
     # =======================
+    log.info("  -> (13/13) Calculating percentile rank features...")
     features_to_rank = ['cvd_taker_50', 'vol_regime_20', 'ofi_50', 'vpin_proxy_50', 'momentum_20', 'rsi_14']
     for feature in features_to_rank:
         if feature in df.columns:
@@ -351,6 +361,7 @@ def generate_bar_features(df: pd.DataFrame) -> pd.DataFrame:
     # =======================
     # FINALIZATION
     # =======================
+    log.info("  -> Finalizing dataframe (handling inf, NaN)...")
     df.replace([np.inf, -np.inf], np.nan, inplace=True)
     df.dropna(inplace=True)
     
@@ -387,4 +398,3 @@ def merge_multi_timeframe_features(base_features: pd.DataFrame, **other_features
     log.info(f"Multi-timeframe merge complete. Final shape: {merged_df.shape}")
     
     return merged_df
-    
