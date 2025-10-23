@@ -5,3 +5,6 @@ scikit-learn
 ta
 requests
 lightgbm
+river
+pyarrow
+numba
