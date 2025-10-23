@@ -3,18 +3,20 @@ book_raw:
   type: kedro_datasets.pandas.CSVDataset
   filepath: "data/01_raw/book_ticker.csv"
   load_args:
+    # --- START OF FIX ---
+    # Corrected column names and order to match the actual Binance file
+    # Removed non-existent 'symbol' column
     names: ["update_id", "best_bid_price", "best_bid_qty", "best_ask_price", "best_ask_qty", "transaction_time", "event_time"]
     skiprows: 1 
-    # --- START OF FIX ---
-    # Added quotes to all dtype values to ensure they are treated as strings
+    # Corrected dtype dictionary to match the new names
     dtype:
-      update_id: 'int64'
-      best_bid_price: 'float64'
-      best_bid_qty: 'float64'
-      best_ask_price: 'float64'
-      best_ask_qty: 'float64'
-      transaction_time: 'int64'
-      event_time: 'int64'
+      update_id: int64
+      best_bid_price: float64
+      best_bid_qty: float64
+      best_ask_price: float64
+      best_ask_qty: float64
+      transaction_time: int64
+      event_time: int64
     # --- END OF FIX ---
 
 trade_raw:
@@ -23,16 +25,13 @@ trade_raw:
   load_args:
     names: ["id", "price", "qty", "quote_qty", "time", "is_buyer_maker"]
     skiprows: 1
-    # --- START OF FIX ---
-    # Added quotes to all dtype values to ensure they are treated as strings
     dtype:
-      id: 'int64'
-      price: 'float64'
-      qty: 'float64'
-      quote_qty: 'float64'
-      time: 'int64'
-      is_buyer_maker: 'bool'
-    # --- END OF FIX ---
+      id: int64
+      price: float64
+      qty: float64
+      quote_qty: float64
+      time: int64
+      is_buyer_maker: bool
 
 # 02_intermediate
 merged_tick_data: {type: kedro_datasets.pandas.ParquetDataset, filepath: "data/02_intermediate/merged_tick_data.parquet"}
