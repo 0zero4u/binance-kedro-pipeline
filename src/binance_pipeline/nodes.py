@@ -122,10 +122,6 @@ def resample_to_time_bars(df: pd.DataFrame, rule: str = "100ms") -> pd.DataFrame
     df['datetime'] = pd.to_datetime(df['timestamp'], unit='ms')
     df = df.set_index('datetime')
 
-    # --- START OF FIX ---
-    # The 'ohlc' aggregation creates single-level columns and must be run separately
-    # from list-based aggregations which create a MultiIndex.
-    
     ohlc_aggregations = {
         'price': 'ohlc',
         'microprice': 'ohlc',
@@ -133,7 +129,7 @@ def resample_to_time_bars(df: pd.DataFrame, rule: str = "100ms") -> pd.DataFrame
     
     other_aggregations = {
         'qty': ['sum', 'mean', 'std', 'count'],
-        'mid_price': ['last'],  # Use list to ensure MultiIndex for consistency
+        'mid_price': ['last'],
         'spread': ['mean', 'std', 'min', 'max'],
         'spread_bps': ['mean', 'std'],
         'taker_flow': ['sum', 'mean', 'std'],
@@ -144,19 +140,15 @@ def resample_to_time_bars(df: pd.DataFrame, rule: str = "100ms") -> pd.DataFrame
     log.info("  - Starting .resample().agg() (this can be slow)...")
     start_time = time.time()
     
-    # Perform aggregations separately
     resampled_ohlc = df.resample(rule).agg(ohlc_aggregations)
     resampled_other = df.resample(rule).agg(other_aggregations)
     
-    # Flatten the MultiIndex columns from each result
     resampled_ohlc.columns = ['_'.join(col).strip() for col in resampled_ohlc.columns.values]
     resampled_other.columns = ['_'.join(col).strip() for col in resampled_other.columns.values]
     
-    # Join the results back together
     resampled_df = resampled_ohlc.join(resampled_other)
     
     log.info(f"  - Aggregation completed in {time.time() - start_time:.2f} seconds.")
-    # --- END OF FIX ---
 
     rename_map = {
         'price_open': 'open', 'price_high': 'high', 'price_low': 'low', 'price_close': 'close',
@@ -231,6 +223,13 @@ def generate_bar_features(df: pd.DataFrame) -> pd.DataFrame:
     """
     Generates comprehensive bar-based features with detailed progress logging.
     """
+    # --- START OF FIX ---
+    # Add a safety check for empty DataFrames to prevent crashes in downstream libraries.
+    if df.empty:
+        log.warning("Input to 'generate_bar_features' is empty. Skipping calculations and returning an empty DataFrame.")
+        return df.copy()
+    # --- END OF FIX ---
+
     log.info(f"Generating comprehensive bar features for dataframe of shape {df.shape}...")
     df = df.copy()
     
@@ -355,6 +354,13 @@ def merge_multi_timeframe_features(base_features: pd.DataFrame, **other_features
     """
     Merges features from multiple timeframes onto a base dataframe.
     """
+    # --- START OF FIX ---
+    # Add a safety check for an empty base DataFrame.
+    if base_features.empty:
+        log.warning("Input 'base_features' is empty. Skipping merge and returning an empty DataFrame.")
+        return base_features.copy()
+    # --- END OF FIX ---
+
     log.info(f"Starting multi-timeframe feature merge. Base shape: {base_features.shape}")
     merged_df = base_features.sort_values('datetime').copy()
     
