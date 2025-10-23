@@ -1,4 +1,4 @@
-
+from kedro.pipeline import pipeline
 from binance_pipeline.pipeline import create_pipeline as create_data_engineering_pipeline
 from binance_pipeline.pipelines.lgbm.pipeline import create_pipeline as create_lgbm_pipeline
 from binance_pipeline.pipelines.arf.pipeline import create_pipeline as create_arf_pipeline
@@ -28,4 +28,8 @@ PIPELINES = {
 
     # The new ARF modeling pipeline
     "arf": create_arf_pipeline(),
+    
+    # New end-to-end pipelines for convenience
+    "e2e_lgbm": pipeline(create_data_engineering_pipeline()) + pipeline(create_lgbm_pipeline()),
+    "e2e_arf": pipeline(create_data_engineering_pipeline()) + pipeline(create_arf_pipeline()),
 }
