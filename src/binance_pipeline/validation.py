@@ -4,6 +4,12 @@ import pandera as pa
 from pandera.typing import DataFrame, Series
 import logging
 
+# =============================================================================
+# IMPORTANT: Import our custom checks file. This runs the registration code,
+# making our custom checks available to the pa.Check namespace.
+from . import checks
+# =============================================================================
+
 log = logging.getLogger(__name__)
 
 # ==================================
@@ -15,14 +21,9 @@ class EnrichedTickSchema(pa.SchemaModel):
     timestamp: Series[int] = pa.Field(
         nullable=False,
         unique=True,
-        # FINAL AND CORRECT FIX: Use a custom lambda check that leverages the
-        # underlying pandas Series property `.is_monotonic_increasing`.
-        checks=[
-            pa.Check(
-                lambda s: s.is_monotonic_increasing,
-                error="Timestamp must be monotonically increasing"
-            )
-        ],
+        # FINAL AND PERMANENT FIX: Use our newly registered custom check.
+        # This is clean, reusable, and the correct engineering practice.
+        checks=[pa.Check.monotonic_increasing()],
         description="Unix timestamp in milliseconds, must be unique and increasing."
     )
     price: Series[float] = pa.Field(nullable=False, checks=[pa.Check.gt(0)])
@@ -82,7 +83,7 @@ def validate_features_data_logic(df: pd.DataFrame) -> pd.DataFrame:
         # Check 1: Correlation between order flow and returns should be positive
         correlation = df['returns'].corr(df['cvd_taker_50'])
         log.info(f"Correlation(returns, cvd_taker_50) = {correlation:.4f}")
-        
+
         # A very weak positive correlation is expected. If it's negative, something is likely wrong.
         assert correlation > 0.001, f"Logical check failed: Correlation between returns and CVD is not positive ({correlation:.4f}). This indicates a potential bug in feature logic."
 
