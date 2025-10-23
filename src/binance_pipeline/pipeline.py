@@ -6,6 +6,7 @@ from .nodes import (
     generate_bar_features,
     merge_multi_timeframe_features,
 )
+from .validation import validate_enriched_tick_data, validate_features_data_logic
 
 def create_pipeline(**kwargs) -> Pipeline:
     timeframes = ["100ms", "3s", "15s", "1min", "3min"]
@@ -21,8 +22,15 @@ def create_pipeline(**kwargs) -> Pipeline:
     tick_feature_node = node(
         func=calculate_tick_level_features,
         inputs="merged_tick_data",
-        outputs="enriched_tick_data",
+        outputs="enriched_tick_data_unvalidated",
         name="calculate_tick_features_node"
+    )
+
+    structural_guardrail_node = node(
+        func=validate_enriched_tick_data,
+        inputs="enriched_tick_data_unvalidated",
+        outputs="enriched_tick_data",
+        name="structural_guardrail_node"
     )
 
     resample_and_feature_nodes = []
@@ -47,8 +55,23 @@ def create_pipeline(**kwargs) -> Pipeline:
     merge_node = node(
         func=merge_multi_timeframe_features,
         inputs={"base_features": f"features_data_{base_tf}", **merge_inputs},
-        outputs="features_data",
+        outputs="features_data_unvalidated",
         name="merge_multi_timeframe_features_node",
     )
 
-    return Pipeline([initial_merge_node, tick_feature_node] + resample_and_feature_nodes + [merge_node])
+    logical_guardrail_node = node(
+        func=validate_features_data_logic,
+        inputs="features_data_unvalidated",
+        outputs="features_data",
+        name="logical_guardrail_node"
+    )
+
+    return Pipeline([
+        initial_merge_node,
+        tick_feature_node,
+        structural_guardrail_node,
+        *resample_and_feature_nodes,
+        merge_node,
+        logical_guardrail_node
+    ])
+                
