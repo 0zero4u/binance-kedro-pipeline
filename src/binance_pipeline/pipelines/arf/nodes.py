@@ -2,6 +2,7 @@
 import pandas as pd
 import numpy as np
 from river import preprocessing, forest, metrics
+import numba
 from sklearn.preprocessing import StandardScaler
 from tqdm import tqdm
 import logging
@@ -11,30 +12,27 @@ log = logging.getLogger(__name__)
 def generate_river_features(df: pd.DataFrame) -> pd.DataFrame:
     """
     Generates features for the ARF model, now including percentile ranks
-    for dynamic, adaptive normalization. This node now works on the rich,
-    pre-computed feature set.
+    over multiple lookback windows for dynamic, adaptive normalization.
     """
-    log.info("Generating V2 features with percentile ranks...")
+    log.info("Generating V2 features with multi-window percentile ranks...")
     
-    # --- The old CVD calculations are removed as we now have superior taker_flow features ---
     
-    # --- Part 1: We will use the pre-computed features like 'cvd_taker_50' and 'volatility_20' ---
-    # These are now calculated in the main data engineering pipeline.
+    # Define windows in terms of number of 100ms bars
+    PERCENTILE_WINDOWS = {
+        '10s': 100,      # Short-term, tactical window
+        '1min': 600,     # Medium-term, trend context
+        '3min': 1800     # Long-term, strategic context
+    }
     
-    # --- Part 2: Calculate Percentile Rank Features on the key new features ---
-    # This transforms features into a measure of their relative strength
-    # compared to the recent past, making them regime-adaptive.
-    PERCENTILE_WINDOW = 100 # Use the last 100 bars (10 seconds) for context.
+    features_to_rank = ['cvd_taker_50', 'vol_regime']
     
-    # The lambda function calculates the percentile rank of the most recent value in the window.
-    # `raw=False` ensures pandas passes a Series object to the lambda function.
-    df['cvd_taker_50_pct_rank'] = df['cvd_taker_50'].rolling(
-        window=PERCENTILE_WINDOW, min_periods=int(PERCENTILE_WINDOW/2)
-    ).apply(lambda x: pd.Series(x).rank(pct=True).iloc[-1], raw=False)
-    
-    df['vol_regime_pct_rank'] = df['vol_regime'].rolling(
-        window=PERCENTILE_WINDOW, min_periods=int(PERCENTILE_WINDOW/2)
-    ).apply(lambda x: pd.Series(x).rank(pct=True).iloc[-1], raw=False)
+    for feature in features_to_rank:
+        for name, window_size in PERCENTILE_WINDOWS.items():
+            log.info(f"Calculating {name} percentile rank for {feature}...")
+            # The lambda function calculates the percentile rank of the most recent value in the window.
+            df[f'{feature}_pct_rank_{name}'] = df[feature].rolling(
+                window=window_size, min_periods=int(window_size / 2)
+            ).apply(lambda x: pd.Series(x).rank(pct=True).iloc[-1], raw=False)
     
     # --- Part 3: Finalize DataFrame ---
     df.replace([np.inf, -np.inf], np.nan, inplace=True)
@@ -44,6 +42,42 @@ def generate_river_features(df: pd.DataFrame) -> pd.DataFrame:
     log.info(f"Feature generation complete. Final shape with all features: {final_df.shape}")
     return final_df
 
+
+@numba.jit(nopython=True)
+def _compute_labels_with_endtime_jit(prices, timestamps, upper_barriers, lower_barriers, time_barrier_periods):
+    """Numba-accelerated function to compute triple-barrier labels and end times."""
+    n_events = len(prices)
+    labels = np.full(n_events, np.nan)
+    t_end = np.full(n_events, np.nan, dtype=np.int64) # Store as int64 for numba compatibility
+
+    for i in range(n_events - time_barrier_periods):
+        upper = upper_barriers[i]
+        lower = lower_barriers[i]
+        time_barrier_end_time = timestamps[i + time_barrier_periods]
+
+        first_upper_hit_idx = -1
+        first_lower_hit_idx = -1
+
+        # Check future prices within the time barrier
+        for j in range(i + 1, i + 1 + time_barrier_periods):
+            if prices[j] >= upper and first_upper_hit_idx == -1:
+                first_upper_hit_idx = j
+            if prices[j] <= lower and first_lower_hit_idx == -1:
+                first_lower_hit_idx = j
+            if first_upper_hit_idx != -1 and first_lower_hit_idx != -1:
+                break # Both found
+
+        if first_upper_hit_idx != -1 and (first_lower_hit_idx == -1 or first_upper_hit_idx < first_lower_hit_idx):
+            labels[i] = 1 # Profit take
+            t_end[i] = timestamps[first_upper_hit_idx]
+        elif first_lower_hit_idx != -1:
+            labels[i] = -1 # Stop loss
+            t_end[i] = timestamps[first_lower_hit_idx]
+        else:
+            labels[i] = 0 # Time barrier
+            t_end[i] = time_barrier_end_time
+    
+    return labels, t_end
 
 def generate_triple_barrier_labels_with_endtime(df: pd.DataFrame, params: dict) -> pd.DataFrame:
     """
@@ -69,41 +103,22 @@ def generate_triple_barrier_labels_with_endtime(df: pd.DataFrame, params: dict) 
         upper_barrier = price + daily_vol * params['vol_multiplier'] * params['profit_take_mult']
         lower_barrier = price - daily_vol * params['vol_multiplier'] * params['stop_loss_mult']
 
-    labels = pd.Series(np.nan, index=df.index)
-    t_end = pd.Series(pd.NaT, index=df.index, dtype='datetime64[ns]')
     time_barrier_periods = params['time_barrier_periods']
+    
+    # --- Accelerated Event Detection Loop ---
+    log.info("Starting accelerated labeling process with end times...")
+    labels_arr, t_end_arr = _compute_labels_with_endtime_jit(
+        price.to_numpy(),
+        df.index.to_numpy().astype(np.int64), # Pass timestamps as integers
+        upper_barrier.to_numpy(),
+        lower_barrier.to_numpy(),
+        time_barrier_periods
+    )
+    
+    df['label'] = labels_arr
+    # Convert integer timestamps back to datetime objects
+    df['t_end'] = pd.to_datetime(t_end_arr, unit='ns') 
 
-    for i in tqdm(range(len(df) - time_barrier_periods), desc="Labeling Events"):
-        start_time = df.index[i]
-        time_barrier_end_time = df.index[i + time_barrier_periods]
-        
-        future_slice = df.iloc[i+1 : i+1 + time_barrier_periods]
-        
-        hit_upper_slice = future_slice[future_slice['close'] >= upper_barrier.loc[start_time]]
-        hit_lower_slice = future_slice[future_slice['close'] <= lower_barrier.loc[start_time]]
-        
-        first_upper_hit_time = hit_upper_slice.index.min()
-        first_lower_hit_time = hit_lower_slice.index.min()
-
-        if pd.notna(first_upper_hit_time) and pd.notna(first_lower_hit_time):
-            if first_upper_hit_time < first_lower_hit_time:
-                labels.loc[start_time] = 1
-                t_end.loc[start_time] = first_upper_hit_time
-            else:
-                labels.loc[start_time] = -1
-                t_end.loc[start_time] = first_lower_hit_time
-        elif pd.notna(first_upper_hit_time):
-            labels.loc[start_time] = 1
-            t_end.loc[start_time] = first_upper_hit_time
-        elif pd.notna(first_lower_hit_time):
-            labels.loc[start_time] = -1
-            t_end.loc[start_time] = first_lower_hit_time
-        else:
-            labels.loc[start_time] = 0
-            t_end.loc[start_time] = time_barrier_end_time
-            
-    df['label'] = labels
-    df['t_end'] = t_end
     df.dropna(subset=['label', 't_end'], inplace=True)
     df['label'] = df['label'].map({-1: 0, 0: 1, 1: 2}).astype(int)
     log.info(f"Labeling complete. Label distribution:\n{df['label'].value_counts(normalize=True)}")
