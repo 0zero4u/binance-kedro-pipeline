@@ -3,24 +3,28 @@ book_raw:
   type: kedro_datasets.pandas.CSVDataset
   filepath: "data/01_raw/book_ticker.csv"
   load_args:
-    names: ["event_time", "symbol", "best_bid_price", "best_bid_qty", "best_ask_price", "best_ask_qty", "transaction_time", "update_id"]
-    skiprows: 1 # <--- ADD THIS LINE
+    # --- START OF FIX ---
+    # Corrected column names and order to match the actual Binance file
+    # Removed non-existent 'symbol' column
+    names: ["update_id", "best_bid_price", "best_bid_qty", "best_ask_price", "best_ask_qty", "transaction_time", "event_time"]
+    skiprows: 1 
+    # Corrected dtype dictionary to match the new names
     dtype:
-      event_time: int64
-      symbol: str
+      update_id: int64
       best_bid_price: float64
       best_bid_qty: float64
       best_ask_price: float64
       best_ask_qty: float64
       transaction_time: int64
-      update_id: int64
+      event_time: int64
+    # --- END OF FIX ---
 
 trade_raw:
   type: kedro_datasets.pandas.CSVDataset
   filepath: "data/01_raw/trades.csv"
   load_args:
     names: ["id", "price", "qty", "quote_qty", "time", "is_buyer_maker"]
-    skiprows: 1 # <--- AND ADD THIS LINE
+    skiprows: 1
     dtype:
       id: int64
       price: float64
