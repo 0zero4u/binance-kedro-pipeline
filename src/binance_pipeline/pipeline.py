@@ -1,7 +1,7 @@
 from kedro.pipeline import Pipeline, node
 from .nodes import (
-    download_and_unzip, # Assuming download might be part of it, keeping for context
     merge_book_trade_asof,
+    calculate_tick_level_features,
     resample_to_time_bars,
     generate_bar_features,
     merge_multi_timeframe_features,
@@ -21,13 +21,21 @@ def create_pipeline(**kwargs) -> Pipeline:
         name="merge_ticks_asof_node",
     )
 
-    # 2. Fan out: Create resample and feature nodes for each timeframe
+    # 2. NEW: Calculate tick-level features before resampling
+    tick_feature_node = node(
+        func=calculate_tick_level_features,
+        inputs="merged_tick_data",
+        outputs="enriched_tick_data",
+        name="calculate_tick_features_node"
+    )
+
+    # 3. Fan out: Create resample and feature nodes for each timeframe
     resample_and_feature_nodes = []
     for tf in timeframes:
         resample_and_feature_nodes.append(
             node(
                 func=resample_to_time_bars,
-                inputs="merged_tick_data",
+                inputs="enriched_tick_data", # <-- Use enriched data
                 outputs=f"resampled_data_{tf}",
                 name=f"resample_to_{tf}_bars_node",
                 kwargs={"rule": tf},
@@ -42,7 +50,7 @@ def create_pipeline(**kwargs) -> Pipeline:
             )
         )
 
-    # 3. Fan in: Merge all feature sets into one DataFrame
+    # 4. Fan in: Merge all feature sets into one DataFrame
     merge_inputs = {f"features_{tf.replace('min', 'm')}": f"features_data_{tf}" for tf in other_tfs}
     merge_node = node(
         func=merge_multi_timeframe_features,
@@ -51,5 +59,4 @@ def create_pipeline(**kwargs) -> Pipeline:
         name="merge_multi_timeframe_features_node",
     )
 
-    return Pipeline([initial_merge_node] + resample_and_feature_nodes + [merge_node])
-    
+    return Pipeline([initial_merge_node, tick_feature_node] + resample_and_feature_nodes + [merge_node])
