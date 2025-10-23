@@ -1,4 +1,3 @@
-
 import pandas as pd
 import pandera as pa
 from pandera.typing import DataFrame, Series
@@ -7,6 +6,7 @@ import logging
 # =============================================================================
 # IMPORTANT: Import our custom checks file. This runs the registration code,
 # making our custom checks available to the pa.Check namespace.
+# This part is correct and must be kept.
 from . import checks
 # =============================================================================
 
@@ -21,14 +21,25 @@ class EnrichedTickSchema(pa.SchemaModel):
     timestamp: Series[int] = pa.Field(
         nullable=False,
         unique=True,
-        # FINAL AND PERMANENT FIX: Use our newly registered custom check.
-        # This is clean, reusable, and the correct engineering practice.
+        # CORRECT SYNTAX: `checks` is a keyword argument taking a list.
         checks=[pa.Check.monotonic_increasing()],
         description="Unix timestamp in milliseconds, must be unique and increasing."
     )
-    price: Series[float] = pa.Field(nullable=False, checks=[pa.Check.gt(0)])
-    best_bid_price: Series[float] = pa.Field(nullable=False, checks=[pa.Check.gt(0)])
-    best_ask_price: Series[float] = pa.Field(nullable=False, checks=[pa.Check.gt(0)])
+    price: Series[float] = pa.Field(
+        nullable=False,
+        # CORRECT SYNTAX: `checks` is a keyword argument taking a list.
+        checks=[pa.Check.gt(0)]
+    )
+    best_bid_price: Series[float] = pa.Field(
+        nullable=False,
+        # CORRECT SYNTAX: `checks` is a keyword argument taking a list.
+        checks=[pa.Check.gt(0)]
+    )
+    best_ask_price: Series[float] = pa.Field(
+        nullable=False,
+        # CORRECT SYNTAX: `checks` is a keyword argument taking a list.
+        checks=[pa.Check.gt(0)]
+    )
     microprice: Series[float] = pa.Field(
         nullable=False,
         description="Microprice should not have any missing values after ffill."
@@ -39,11 +50,13 @@ class EnrichedTickSchema(pa.SchemaModel):
     )
     book_imbalance: Series[float] = pa.Field(
         nullable=False,
+        # CORRECT SYNTAX: `checks` is a keyword argument taking a list.
         checks=[pa.Check.in_range(-1.0, 1.0)],
         description="Book imbalance must be between -1 and 1."
     )
     spread: Series[float] = pa.Field(
         nullable=False,
+        # CORRECT SYNTAX: `checks` is a keyword argument taking a list.
         checks=[pa.Check.ge(0)],
         description="Spread cannot be negative."
     )
@@ -83,7 +96,7 @@ def validate_features_data_logic(df: pd.DataFrame) -> pd.DataFrame:
         # Check 1: Correlation between order flow and returns should be positive
         correlation = df['returns'].corr(df['cvd_taker_50'])
         log.info(f"Correlation(returns, cvd_taker_50) = {correlation:.4f}")
-
+        
         # A very weak positive correlation is expected. If it's negative, something is likely wrong.
         assert correlation > 0.001, f"Logical check failed: Correlation between returns and CVD is not positive ({correlation:.4f}). This indicates a potential bug in feature logic."
 
