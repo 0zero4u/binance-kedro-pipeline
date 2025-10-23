@@ -1,1 +1,25 @@
+feature_params:
+  percentile_windows: 
+    '5s': 50
+    '10s': 100
+    '30s': 300
+    '1min': 600
+    '3min': 1800
+    '5min': 3000
+
+training_params:
+  models:
+    arf_conservative:
+      n_models: 15
+      lambda_value: 6
+      seed: 42
+    arf_aggressive:
+      n_models: 10
+      lambda_value: 3
+      seed: 43
+    arf_balanced:
+      n_models: 12
+      lambda_value: 4
+      seed: 44
+
 
