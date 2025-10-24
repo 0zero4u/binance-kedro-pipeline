@@ -33,8 +33,3 @@ handlers:
 root:
   level: DEBUG # Set root to DEBUG to capture everything for the file handler
   handlers: [rich_console, info_file_handler]
-
-# Keep the Kedro framework logs at INFO to avoid excessive verbosity on the console
-loggers:
-  kedro:
-    level: INFO
