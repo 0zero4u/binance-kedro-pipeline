@@ -11,8 +11,8 @@ from .validation import validate_enriched_tick_data, validate_features_data_logi
 
 
 def create_pipeline(**kwargs) -> Pipeline:
-
-    # 1. Initial merge
+    
+    # 1. Initial merge (Trade + Book)
     initial_merge_node = node(
         func=merge_book_trade_asof,
         inputs=["book_raw", "trade_raw"],
@@ -20,7 +20,7 @@ def create_pipeline(**kwargs) -> Pipeline:
         name="merge_ticks_asof_node",
     )
 
-    # 2. Enrich tick data (OFI, Microprice, Dollar Flow)
+    # 2. Enrich tick data (Microprice, OFI, Book Imbalance)
     tick_feature_node = node(
         func=calculate_tick_level_features,
         inputs="merged_tick_data",
@@ -46,22 +46,20 @@ def create_pipeline(**kwargs) -> Pipeline:
 
     # 5. Sample TBT features onto a high-frequency grid (25ms)
     sampling_node = node(
-        # Use 25ms as the default high-frequency sampling interval
         func=partial(sample_features_to_grid, rule='25ms'),
         inputs="ewma_features_tbt",
-        outputs="features_data_unvalidated_raw", # Intermediate name for the sampled grid
+        outputs="features_data_unvalidated_raw",
         name="sample_features_to_25ms_grid_node",
     )
     
     # 6. Calculate secondary features (RSI, Hurst Exponent) on the 25ms grid
     secondary_feature_node = node(
-        # generate_bar_features is re-purposed to run on the clean, dense grid
         func=generate_bar_features,
         inputs="features_data_unvalidated_raw",
-        outputs="features_data_unvalidated", # Final unvalidated feature set
-        name="calculate_secondary_features_on_grid_node",
+        outputs="features_data_unvalidated",
+        name="calculate_secondary_features_on_grid_node"
     )
-
+    
     # 7. Logical validation
     logical_guardrail_node = node(
         func=validate_features_data_logic,
