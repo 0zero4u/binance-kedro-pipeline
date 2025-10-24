@@ -1,4 +1,3 @@
-
 import pandas as pd
 import pandera as pa
 from pandera.typing import DataFrame, Series
@@ -9,11 +8,7 @@ log = logging.getLogger(__name__)
 class EnrichedTickSchema(pa.SchemaModel):
     """Schema for the structurally validated enriched tick data."""
 
-    # --- START OF FIX ---
-    # Removed `unique=True` because multiple trades can occur at the same millisecond.
-    # The `timestamp_monotonic` check is the correct and sufficient constraint.
     timestamp: Series[int] = pa.Field(nullable=False)
-    # --- END OF FIX ---
 
     price: Series[float] = pa.Field(nullable=False)
     best_bid_price: Series[float] = pa.Field(nullable=False)
@@ -56,7 +51,6 @@ def validate_enriched_tick_data(df: pd.DataFrame) -> pd.DataFrame:
     Halts the pipeline if validation fails.
     """
     log.info(f"Applying STRUCTURAL guardrail to enriched_tick_data (shape: {df.shape})...")
-    # Add a check for the empty DataFrame to provide a better warning.
     if df.empty:
         log.warning("Input to 'validate_enriched_tick_data' is an empty DataFrame. Validation will pass, but no data will be processed downstream.")
         return df
@@ -75,6 +69,7 @@ def validate_features_data_logic(df: pd.DataFrame) -> pd.DataFrame:
     """
     Applies the logical guardrail to the final features data.
     Checks for plausible market dynamics.
+    (Updated to use a TBT EWMA derived feature for checking correlation).
     """
     log.info(f"Applying LOGICAL guardrail to features_data (shape: {df.shape})...")
     if df.empty:
@@ -82,8 +77,10 @@ def validate_features_data_logic(df: pd.DataFrame) -> pd.DataFrame:
         return df
 
     try:
-        correlation = df['returns'].corr(df['cvd_taker_50'])
-        log.info(f"Correlation(returns, cvd_taker__50) = {correlation:.4f}")
+        # Use a stable, Wall Clock CVD feature for the correlation check
+        cvd_feature = 'taker_flow_rollsum_60s'
+        correlation = df['returns'].corr(df[cvd_feature])
+        log.info(f"Correlation(returns, {cvd_feature}) = {correlation:.4f}")
         
         assert correlation > 0.001, f"Logical check failed: Correlation between returns and CVD is not positive ({correlation:.4f}). This indicates a potential bug in feature logic."
 
