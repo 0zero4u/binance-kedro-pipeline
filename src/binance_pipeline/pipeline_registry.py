@@ -36,4 +36,5 @@ def register_pipelines() -> Dict[str, Pipeline]:
         "e2e_lgbm": de_pipeline + lgbm_pipeline,
         "e2e_arf": de_pipeline + arf_pipeline,
         "e2e_reporting": de_pipeline + reporting_pipeline,
-}
+    }
+    
