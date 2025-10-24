@@ -1,5 +1,5 @@
 import pandas as pd
-import numpy as np  # <-- FIX: Add the missing numpy import
+import numpy as np
 import pandera as pa
 from pandera.typing import DataFrame, Series
 import logging
@@ -68,34 +68,26 @@ def validate_enriched_tick_data(df: pd.DataFrame) -> pd.DataFrame:
 
 def validate_features_data_logic(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Applies a robust, two-stage cleaning process and logical guardrail to the final features data.
+    Applies a robust, simplified cleaning process and logical guardrail to the final features data.
     """
     log.info(f"Applying LOGICAL guardrail to features_data (shape: {df.shape})...")
     
-    # --- FIX: Implement a robust two-stage cleaning process ---
+    # --- FIX: Implement a robust, simplified cleaning process ---
+    log.info("  - Cleaning data: Replacing infs, forward-filling, and dropping final NaNs...")
     
-    # Stage 1: Drop initial warm-up period based on a RELIABLE long-window feature.
-    log.info("  - Stage 1: Dropping initial warm-up period...")
-    initial_rows = len(df)
-    reliable_warmup_feature = 'taker_flow_rollsum_60s'
-    if reliable_warmup_feature in df.columns:
-        df.dropna(subset=[reliable_warmup_feature], inplace=True)
-        log.info(f"  - Dropped {initial_rows - len(df)} initial rows. New shape: {df.shape}")
-    else:
-        log.warning(f"  - Reliable feature '{reliable_warmup_feature}' not found. Skipping initial drop.")
-        
-    # Stage 2: Forward-fill to handle intermittent NaNs from sensitive features.
-    log.info("  - Stage 2: Forward-filling intermittent NaNs from sensitive features...")
-    # Replace any infinite values that may have been created
+    # Step 1: Replace any infinite values that may have been created
     df.replace([np.inf, -np.inf], np.nan, inplace=True)
+    
+    # Step 2: Forward-fill to handle ALL intermittent NaNs from sensitive features.
     nans_before = df.isna().sum().sum()
     df.ffill(inplace=True)
     nans_after = df.isna().sum().sum()
     log.info(f"  - Filled {nans_before - nans_after} NaN values.")
 
-    # A final dropna for any NaNs that might remain at the very start after ffill
+    # Step 3: A single, final dropna to remove any NaNs remaining at the start of the series.
+    initial_rows = len(df)
     df.dropna(inplace=True)
-    log.info(f"  - Final clean shape: {df.shape}")
+    log.info(f"  - Dropped {initial_rows - len(df)} initial warm-up rows. Final shape: {df.shape}")
 
     if df.empty:
         log.warning("Input to 'validate_features_data_logic' is an empty DataFrame AFTER cleaning. Skipping logical checks.")
