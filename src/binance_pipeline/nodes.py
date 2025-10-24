@@ -1,3 +1,4 @@
+
 import pandas as pd
 import numpy as np
 import ta
@@ -305,7 +306,14 @@ def generate_bar_features(df: pd.DataFrame) -> pd.DataFrame:
 
     # Final cleanup
     df.replace([np.inf, -np.inf], np.nan, inplace=True)
-    df.dropna(inplace=True)
+    
+    # --- FIX FOR EMPTY DATAFRAME: Drop NaNs more selectively ---
+    # Only drop rows where the column with the longest warm-up (hurst_100) is still NaN.
+    if 'hurst_100' in df.columns:
+        df.dropna(subset=['hurst_100'], inplace=True)
+    else:
+        # Fallback if hurst wasn't calculated, use another long-window feature
+        df.dropna(subset=['rsi_28'], inplace=True)
     
     log.info(f"Secondary feature generation complete. Final shape: {df.shape}")
     return df
