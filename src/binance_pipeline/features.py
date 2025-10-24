@@ -1,4 +1,3 @@
-
 import pandas as pd
 import numpy as np
 import numba
@@ -46,7 +45,7 @@ class AdvancedFeatureEngine:
 
     def calculate_microstructure_features(self, df: pd.DataFrame) -> pd.DataFrame:
         """Calculates advanced market microstructure features."""
-        log.info("Calculating market microstructure features...")
+        log.info(f"Calculating market microstructure features for shape {df.shape}...")
         df_out = df.copy()
         
         # 1. Kyle's Lambda (price impact)
@@ -59,17 +58,19 @@ class AdvancedFeatureEngine:
         df_out['amihud_illiq'] = abs(df_out['returns']) / (df_out['qty'] * df_out['price'] + 1e-10)
         df_out['amihud_illiq_ewma_50'] = df_out['amihud_illiq'].ewm(span=50).mean()
         
+        log.info(f"Microstructure features complete. Final shape: {df_out.shape}")
         return df_out
 
     def calculate_order_flow_derivatives(self, df: pd.DataFrame) -> pd.DataFrame:
         """Advanced order flow imbalance features."""
-        log.info("Calculating order flow derivative features...")
+        log.info(f"Calculating order flow derivative features for shape {df.shape}...")
         df_out = df.copy()
         
         # OFI acceleration (2nd derivative)
         df_out['ofi_velocity'] = df_out['ofi_ewma_5s'].diff(1)
         df_out['ofi_acceleration'] = df_out['ofi_velocity'].diff(1)
         
+        log.info(f"Order flow derivatives complete. Final shape: {df_out.shape}")
         return df_out
 
     def select_features(self, df: pd.DataFrame, importance_dict: Dict[str, float], top_k: int = 100) -> List[str]:
@@ -84,4 +85,3 @@ class AdvancedFeatureEngine:
                 
         log.info(f"Selected features count: {len(selected)}. Top 10: {[f[0] for f in sorted_features[:10]]}")
         return selected
-        
