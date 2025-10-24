@@ -81,10 +81,8 @@ def merge_book_trade_asof(book_raw: pd.DataFrame, trade_raw: pd.DataFrame) -> pd
     merged_df = pd.merge_asof(left=trades, right=book, on='timestamp', direction='backward')
     log.info(f"  - Merge completed in {time.time() - start_time:.2f} seconds.")
     
-    # --- START OF FIX ---
     # Drop rows only if the merge failed to find a corresponding book entry
     merged_df.dropna(subset=['best_bid_price', 'best_ask_price'], inplace=True)
-    # --- END OF FIX ---
 
     # Basic features
     merged_df["mid_price"] = (merged_df["best_bid_price"] + merged_df["best_ask_price"]) / 2
@@ -118,69 +116,102 @@ def calculate_tick_level_features(df: pd.DataFrame) -> pd.DataFrame:
     log.info("Tick-level feature calculation complete.")
     return df
 
-# --- Resample Node ---
-def resample_to_time_bars(df: pd.DataFrame, rule: str = "100ms") -> pd.DataFrame:
-    """Resamples tick data to time bars with comprehensive aggregations."""
-    log.info(f"Resampling data to '{rule}' bars...")
-    log.info(f"  - Input shape: {df.shape}")
-    df['datetime'] = pd.to_datetime(df['timestamp'], unit='ms')
-    df = df.set_index('datetime')
+# --- EWMA TBT Feature Calculation Node ---
+def calculate_ewma_features(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Calculates Exponentially Weighted Moving Average (EWMA) features 
+    (Activity Clock) and Rolling Sums (Wall Clock) directly on the tick data 
+    using a multi-span half-life approach (V4: 5s, 15s, 1m, 3m, 15m).
+    """
+    log.info(f"Calculating TBT EWMA and Wall Clock features for dataframe of shape {df.shape}...")
+    df_out = df.copy()
 
-    ohlc_aggregations = {
-        'price': 'ohlc',
-        'microprice': 'ohlc',
+    # Define EWMA time-based half-life spans (in milliseconds) - Activity Clock
+    ewma_time_spans = {
+        '5s': 5000,
+        '15s': 15000,
+        '1m': 60000,
+        '3m': 180000,
+        '15m': 900000, 
     }
+    # Define the fastest and slowest span keys for core momentum calculation
+    FASTEST_SPAN_KEY = '5s'
+    SLOWEST_SPAN_KEY = '15m'
     
-    other_aggregations = {
-        'qty': ['sum', 'mean', 'std', 'count'],
-        'mid_price': ['last'],
-        'spread': ['mean', 'std', 'min', 'max'],
-        'spread_bps': ['mean', 'std'],
-        'taker_flow': ['sum', 'mean', 'std'],
-        'ofi': ['sum', 'mean'],
-        'book_imbalance': ['mean', 'std', 'min', 'max'],
+    # Define Wall Clock rolling windows (in Pandas time strings)
+    wall_clock_windows = {
+        '60s': '60s' # For CVD calculation
     }
 
-    log.info("  - Starting .resample().agg() (this can be slow)...")
-    start_time = time.time()
+    # Time column must be datetime for EWM implementation
+    df_out['datetime'] = pd.to_datetime(df_out['timestamp'], unit='ms')
+    df_out = df_out.set_index('datetime')
     
-    resampled_ohlc = df.resample(rule).agg(ohlc_aggregations)
-    resampled_other = df.resample(rule).agg(other_aggregations)
+    # Features to apply EWMA to
+    features_to_smooth = [
+        'mid_price', 'spread', 'spread_bps', 'microprice', 
+        'taker_flow', 'ofi', 'book_imbalance', 'price', 'qty'
+    ]
     
-    resampled_ohlc.columns = ['_'.join(col).strip() for col in resampled_ohlc.columns.values]
-    resampled_other.columns = ['_'.join(col).strip() for col in resampled_other.columns.values]
+    for feature in features_to_smooth:
+        
+        # 1. EWMA Features (Activity Clock)
+        for name, span_ms in ewma_time_spans.items():
+            # Use halflife (exponential decay) based on the time span
+            ewm_series = df_out[feature].ewm(halflife=f'{span_ms}ms', times=df_out.index).mean()
+            df_out[f'{feature}_ewma_{name}'] = ewm_series
+
+        # 2. Momentum (Difference between fastest and slowest EWMA)
+        fast_col = f'{feature}_ewma_{FASTEST_SPAN_KEY}'
+        slow_col = f'{feature}_ewma_{SLOWEST_SPAN_KEY}'
+        
+        if fast_col in df_out.columns and slow_col in df_out.columns:
+             # Calculate momentum only if the feature is one where momentum makes sense (e.g., price, flow, spread)
+             if feature in ['mid_price', 'microprice', 'taker_flow', 'ofi', 'spread_bps']:
+                 df_out[f'{feature}_momentum'] = df_out[fast_col] - df_out[slow_col]
+
+        # 3. Wall Clock Features (Rolling Sum/CVD)
+        if feature in ['taker_flow', 'ofi']:
+            for name, window_str in wall_clock_windows.items():
+                df_out[f'{feature}_rollsum_{name}'] = df_out[feature].rolling(window=window_str).sum()
+                
+        # 4. Basic Velocity/Acceleration (of the fastest EWMA)
+        df_out[f'{feature}_velocity'] = df_out[fast_col].diff(1)
+        df_out[f'{feature}_accel'] = df_out[f'{feature}_velocity'].diff(1)
+            
+    df_out.reset_index(inplace=True)
+    log.info(f"TBT EWMA & Wall Clock feature calculation complete. Total features: {len(df_out.columns)}")
+    return df_out
+
+def sample_features_to_grid(df: pd.DataFrame, rule: str = '25ms') -> pd.DataFrame:
+    """
+    Samples the EWMA tick-by-tick features onto a fixed time grid (e.g., 25ms) 
+    using the 'last' observation for each interval and then forward-filling.
+    """
+    log.info(f"Sampling TBT features onto a fixed {rule} grid...")
     
-    resampled_df = resampled_ohlc.join(resampled_other)
+    df_temp = df.copy()
+    if 'datetime' not in df_temp.columns:
+        df_temp['datetime'] = pd.to_datetime(df_temp['timestamp'], unit='ms')
+    df_temp = df_temp.set_index('datetime')
+
+    # 1. Resample by taking the LAST observation in the interval
+    sampled_df = df_temp.resample(rule).last()
     
-    log.info(f"  - Aggregation completed in {time.time() - start_time:.2f} seconds.")
+    # 2. Forward fill missing grid points (essential for continuous features)
+    sampled_df.ffill(inplace=True)
+    
+    # 3. Drop initial NaNs generated by the EWMA warm-up period
+    sampled_df.dropna(inplace=True)
 
-    rename_map = {
-        'price_open': 'open', 'price_high': 'high', 'price_low': 'low', 'price_close': 'close',
-        'qty_sum': 'volume', 'qty_mean': 'avg_trade_size', 'qty_std': 'trade_size_std',
-        'qty_count': 'num_trades',
-        'mid_price_last': 'mid_price', 'spread_mean': 'spread', 'spread_std': 'spread_std',
-        'spread_bps_mean': 'spread_bps',
-        'microprice_open': 'micro_open', 'microprice_high': 'micro_high',
-        'microprice_low': 'micro_low', 'microprice_close': 'micro_close',
-        'taker_flow_sum': 'taker_flow',
-        'ofi_sum': 'ofi',
-        'book_imbalance_mean': 'book_imbalance',
-    }
-    resampled_df.rename(columns=rename_map, inplace=True)
-
-    price_cols = [col for col in resampled_df.columns if 'price' in col.lower() or
-                  col in ['open', 'high', 'low', 'close', 'mid_price', 'spread',
-                          'micro_open', 'micro_high', 'micro_low', 'micro_close']]
-    resampled_df[price_cols] = resampled_df[price_cols].ffill()
-
-    fill_zero_cols = ['volume', 'taker_flow', 'ofi', 'num_trades']
-    for col in fill_zero_cols:
-        if col in resampled_df.columns:
-            resampled_df[col].fillna(0, inplace=True)
-
-    resampled_df.dropna(inplace=True)
-    log.info(f"Resampling complete. Output shape: {resampled_df.shape}")
-    return resampled_df.reset_index()
+    # Add OHLC price metrics to the final sampled grid for labeling
+    ohlc_df = df_temp['price'].resample(rule).agg('ohlc')
+    ohlc_df.columns = ['open', 'high', 'low', 'close']
+    
+    final_df = sampled_df.join(ohlc_df, how='inner')
+    
+    log.info(f"Sampling complete. Output shape: {final_df.shape}")
+    return final_df.reset_index()
 
 
 # =============================================================================
@@ -222,171 +253,52 @@ def apply_rolling_numba(series: pd.Series, func, window: int) -> pd.Series:
     result = func(values, window)
     return pd.Series(result, index=series.index, name=series.name)
 
-# --- Advanced Feature Engineering Node ---
+# --- Secondary Feature Generation Node (RSI, Hurst, Temporal) ---
 def generate_bar_features(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Generates comprehensive bar-based features with detailed progress logging.
+    Calculates secondary bar-based features (e.g., RSI, Hurst) on the 25ms grid.
     """
-    # --- START OF FIX ---
-    # Add a safety check for empty DataFrames to prevent crashes in downstream libraries.
     if df.empty:
-        log.warning("Input to 'generate_bar_features' is empty. Skipping calculations and returning an empty DataFrame.")
+        log.warning("Input to 'generate_bar_features' is empty. Skipping calculations.")
         return df.copy()
-    # --- END OF FIX ---
-
-    log.info(f"Generating comprehensive bar features for dataframe of shape {df.shape}...")
+    
+    log.info(f"Generating secondary/legacy bar features (RSI, Hurst) for dataframe of shape {df.shape}...")
     df = df.copy()
     
-    total_steps = 13
-    
-    def log_progress(step, message):
-        log.info(f"  [{(step/total_steps)*100:3.0f}%] ({step}/{total_steps}) {message}")
-
-    log_progress(1, "Calculating basic technical indicators...")
+    # Basic price derivatives
     df['returns'] = df['close'].pct_change()
     df['log_returns'] = np.log(df['close'] / df['close'].shift(1))
+    
+    # Technical Indicators
     df['rsi_14'] = ta.momentum.RSIIndicator(close=df['close'], window=14).rsi()
     df['rsi_28'] = ta.momentum.RSIIndicator(close=df['close'], window=28).rsi()
-    df['atr_14'] = ta.volatility.AverageTrueRange(high=df["high"], low=df["low"], close=df["close"], window=14).average_true_range()
-    for window in [50, 100, 200]:
-        df[f'vwap_{window}'] = (df['volume'] * df['close']).rolling(window).sum() / (df['volume'].rolling(window).sum() + 1e-10)
-        df[f'price_to_vwap_{window}'] = df['close'] / df[f'vwap_{window}']
 
-    log_progress(2, "Calculating volatility features...")
-    df['gk_vol'] = 0.5 * np.log(df['high'] / df['low'])**2 - (2 * np.log(2) - 1) * np.log(df['close'] / df['open'])**2
-    for window in [20, 50, 100]:
-        df[f'gk_vol_{window}'] = df['gk_vol'].rolling(window=window).mean()
-        df[f'vol_regime_{window}'] = df['gk_vol'] / (df[f'gk_vol_{window}'] + 1e-10)
-    for window in [10, 20, 50]:
-        df[f'realized_vol_{window}'] = df['log_returns'].rolling(window).std() * np.sqrt(window)
-
-    log_progress(3, "Calculating momentum features...")
-    for period in [5, 10, 20, 50, 100]:
-        df[f'momentum_{period}'] = df['close'] - df['close'].shift(period)
-        df[f'momentum_pct_{period}'] = (df['close'] / df['close'].shift(period) - 1) * 100
-    df['momentum_acceleration_10'] = df['momentum_10'] - df['momentum_10'].shift(1)
-    df['momentum_acceleration_20'] = df['momentum_20'] - df['momentum_20'].shift(1)
-
-    log_progress(4, "Calculating order flow features...")
-    for window in [20, 50, 100, 200]:
-        df[f'cvd_taker_{window}'] = df['taker_flow'].rolling(window=window).sum()
-        df[f'cvd_velocity_{window}'] = df[f'cvd_taker_{window}'].diff(1)
-        df[f'cvd_accel_{window}'] = df[f'cvd_velocity_{window}'].diff(1)
-    for window in [20, 50, 100]:
-        df[f'ofi_{window}'] = df['ofi'].rolling(window=window).sum()
-        df[f'ofi_std_{window}'] = df['ofi'].rolling(window=window).std()
-
-    log_progress(5, "Calculating volume features...")
-    for window in [20, 50, 100]:
-        df[f'volume_ma_{window}'] = df['volume'].rolling(window).mean()
-        df[f'volume_ratio_{window}'] = df['volume'] / (df[f'volume_ma_{window}'] + 1e-10)
-    for window in [50, 100]:
-        df[f'vpin_proxy_{window}'] = df['taker_flow'].abs().rolling(window).sum() / (df['volume'].rolling(window).sum() + 1e-10)
-
-    log_progress(6, "Calculating spread & liquidity features...")
-    for window in [20, 50]:
-        df[f'amihud_{window}'] = abs(df['returns']).rolling(window).sum() / (df['volume'].rolling(window).sum() + 1e-10)
-        rolling_cov = df['returns'].rolling(window).cov(df['taker_flow'])
-        rolling_var = df['taker_flow'].rolling(window).var()
-        df[f'kyles_lambda_{window}'] = rolling_cov / (rolling_var + 1e-10)
-    if 'book_imbalance' in df.columns:
-        for window in [20, 50]:
-            df[f'book_imb_ma_{window}'] = df['book_imbalance'].rolling(window).mean()
-            df[f'book_imb_std_{window}'] = df['book_imbalance'].rolling(window).std()
-
-    log_progress(7, "Calculating temporal features...")
+    # Hurst Exponent Calculation (Regime Detection)
+    def hurst(ts):
+        # Calculates Hurst Exponent using a simplified Rescaled Range approximation
+        lags = range(2, 100)
+        tau = [np.sqrt(np.std(np.subtract(ts[lag:], ts[:-lag]))) for lag in lags]
+        poly = np.polyfit(np.log(lags), np.log(tau), 1)
+        return poly[0] * 2.0
+    
+    window_hurst = 100 # 100 * 25ms = 2.5 seconds
+    if len(df) > window_hurst:
+        log.info(f"  -> Calculating Hurst Exponent (Window: {window_hurst} periods)")
+        df['hurst_100'] = df['close'].rolling(window_hurst).apply(hurst, raw=True)
+    else:
+        log.warning(f"  -> Skipping Hurst calculation, DataFrame size ({len(df)}) is too small.")
+        
+    # Temporal Features
     df['hour'] = df['datetime'].dt.hour
     df['minute'] = df['datetime'].dt.minute
     df['day_of_week'] = df['datetime'].dt.dayofweek
     df['hour_sin'] = np.sin(2 * np.pi * df['hour'] / 24)
     df['hour_cos'] = np.cos(2 * np.pi * df['hour'] / 24)
-    df['asian_session'] = ((df['hour'] >= 0) & (df['hour'] < 8)).astype(int)
-    df['european_session'] = ((df['hour'] >= 8) & (df['hour'] < 16)).astype(int)
-    df['us_session'] = ((df['hour'] >= 16) & (df['hour'] < 24)).astype(int)
 
-    log_progress(8, "Calculating autocorrelation & lag features...")
-    for lag in [1, 2, 3, 5, 10]:
-        df[f'returns_lag_{lag}'] = df['returns'].shift(lag)
-    for window in [50, 100]:
-        for lag in [1, 5]:
-            df[f'returns_autocorr_lag{lag}_w{window}'] = df['returns'].rolling(window).apply(lambda x: x.autocorr(lag=lag), raw=False)
 
-    log_progress(9, "Calculating statistical features...")
-    for window in [20, 50, 100]:
-        df[f'returns_skew_{window}'] = df['returns'].rolling(window).skew()
-        df[f'returns_kurt_{window}'] = df['returns'].rolling(window).kurt()
-
-    log_progress(10, "Calculating fourier features...")
-    window_fft = 256
-    if len(df) >= window_fft:
-        rolling_fft_power = df['close'].rolling(window_fft).apply(lambda x: np.max(np.abs(fft(x.values)[1:len(x)//2])**2) if len(x) > 2 else 0.0, raw=False)
-        df['dominant_cycle_power'] = rolling_fft_power
-        df['dominant_cycle_power'].ffill(inplace=True)
-
-    log_progress(11, "Calculating regime detection features (Hurst is slow)...")
-    for window in [20, 50, 100]:
-        df[f'trend_strength_{window}'] = apply_rolling_numba(df['close'], _rolling_slope_numba, window)
-    
-    def hurst(ts):
-        lags = range(2, 100)
-        tau = [np.sqrt(np.std(np.subtract(ts[lag:], ts[:-lag]))) for lag in lags]
-        poly = np.polyfit(np.log(lags), np.log(tau), 1)
-        return poly[0] * 2.0
-    if len(df) > 100:
-        df['hurst_100'] = df['close'].rolling(100).apply(hurst, raw=True)
-
-    log_progress(12, "Calculating interaction features...")
-    df['mom_vol_ratio_20'] = df['momentum_20'] / (df['realized_vol_20'] + 1e-10)
-    df['cvd_momentum_div_50'] = (np.sign(df['momentum_50']) != np.sign(df['cvd_taker_50'])).astype(int)
-
-    log_progress(13, "Calculating percentile rank features...")
-    features_to_rank = ['cvd_taker_50', 'vol_regime_20', 'ofi_50', 'vpin_proxy_50', 'momentum_20', 'rsi_14']
-    for feature in features_to_rank:
-        if feature in df.columns:
-            for window in [100, 600]:
-                df[f'{feature}_pct_rank_{window}'] = apply_rolling_numba(df[feature], _rolling_rank_pct_numba, window)
-
-    log.info("  -> Finalizing dataframe (handling inf, NaN)...")
+    # Final cleanup
     df.replace([np.inf, -np.inf], np.nan, inplace=True)
     df.dropna(inplace=True)
     
-    log.info(f"Feature generation complete. Final shape: {df.shape}, Total features: {len(df.columns)}")
+    log.info(f"Secondary feature generation complete. Final shape: {df.shape}")
     return df
-
-# --- Multi-Timeframe Merge Node (Improved) ---
-def merge_multi_timeframe_features(base_features: pd.DataFrame, **other_features: pd.DataFrame) -> pd.DataFrame:
-    """
-    Merges features from multiple timeframes onto a base dataframe.
-    """
-    # --- START OF FIX ---
-    # Add a safety check for an empty base DataFrame.
-    if base_features.empty:
-        log.warning("Input 'base_features' is empty. Skipping merge and returning an empty DataFrame.")
-        return base_features.copy()
-    # --- END OF FIX ---
-
-    log.info(f"Starting multi-timeframe feature merge. Base shape: {base_features.shape}")
-    merged_df = base_features.sort_values('datetime').copy()
-    
-    exclude_cols = [
-        'datetime', 'open', 'high', 'low', 'close', 'volume',
-        'mid_price', 'spread', 'micro_open', 'micro_high', 'micro_low',
-        'micro_close', 'taker_flow', 'ofi', 'num_trades',
-        'hour', 'minute', 'day_of_week'
-    ]
-    
-    for tf_name, df_tf in other_features.items():
-        suffix = f"_{tf_name.split('_')[-1]}"
-        df_to_merge = df_tf.sort_values('datetime').copy()
-        
-        feature_cols = [c for c in df_to_merge.columns if c not in exclude_cols]
-        cols_to_rename = {col: col + suffix for col in feature_cols}
-        df_to_merge = df_to_merge[['datetime'] + feature_cols].rename(columns=cols_to_rename)
-        
-        merged_df = pd.merge_asof(merged_df, df_to_merge, on='datetime', direction='backward')
-        log.info(f"Merged {tf_name}: added {len(feature_cols)} features.")
-    
-    merged_df.dropna(inplace=True)
-    log.info(f"Multi-timeframe merge complete. Final shape: {merged_df.shape}")
-    
-    return merged_df
