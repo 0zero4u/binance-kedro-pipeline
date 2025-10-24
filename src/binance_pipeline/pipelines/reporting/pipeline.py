@@ -7,7 +7,7 @@ def create_pipeline(**kwargs) -> Pipeline:
             func=create_unified_traceability_report,
             inputs=[
                 "merged_tick_data",
-                "resampled_data_100ms",
+                "ewma_features_tbt",
                 "features_data",
             ],
             outputs="unified_5min_traceability_report",
