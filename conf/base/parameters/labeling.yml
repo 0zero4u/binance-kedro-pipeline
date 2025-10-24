@@ -1,19 +1,22 @@
 labeling_params:
   # Method for barrier creation: 'fixed_pct' or 'volatility'
-  method: "fixed_pct" 
+  method: "fixed_pct"
   
-  # --- Fixed Percentage Barrier Parameters (more balanced for better learning) ---
-  # Gross ratio: 3.5:1, Net ratio after fees: ~1:1
-  profit_take_gross_pct: 0.0007  # 0.07%
-  stop_loss_gross_pct: 0.0002    # 0.02%
-  fee_pct: 0.00025               # 0.025% per trade for net calculation
+  # --- IMPROVED: Fee-Aware Net Return Targeting ---
+  # Define DESIRED net returns after fees. The labeling function will
+  # automatically calculate the required gross return to achieve these targets.
+  profit_take_net_pct: 0.0008  # Target 0.08% net profit
+  stop_loss_net_pct: 0.0003    # Target 0.03% net loss
   
-  # Shared time barrier (450 * 100ms = 45 seconds). NOTE: This must be updated 
-  # for 25ms grid (450 * 100ms = 45s => 1800 * 25ms = 45s)
+  # Fee per trade (will be applied 2x for a round-trip)
+  fee_pct: 0.00025  # 0.025% per trade
+  
+  # Time barrier: 45 seconds on 25ms grid = 1800 periods
   time_barrier_periods: 1800
-
+  
   # --- Volatility-Based Parameters (if method is 'volatility') ---
   vol_lookback: 50
-  vol_multiplier: 2.0
-  profit_take_mult: 1.5
+  vol_multiplier: 2.5
+  profit_take_mult: 2.0
   stop_loss_mult: 1.5
+  
