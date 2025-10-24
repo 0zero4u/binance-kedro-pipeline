@@ -3,19 +3,16 @@ from functools import partial
 from .nodes import (
     merge_book_trade_asof,
     calculate_tick_level_features,
-    resample_to_time_bars,
-    generate_bar_features,
-    merge_multi_timeframe_features,
+    calculate_ewma_features, 
+    sample_features_to_grid, 
+    generate_bar_features, 
 )
 from .validation import validate_enriched_tick_data, validate_features_data_logic
 
 
 def create_pipeline(**kwargs) -> Pipeline:
-    timeframes = ["100ms", "3s", "15s", "1min", "3min"]
-    base_tf = timeframes[0]
-    other_tfs = timeframes[1:]
 
-    # Initial merge
+    # 1. Initial merge
     initial_merge_node = node(
         func=merge_book_trade_asof,
         inputs=["book_raw", "trade_raw"],
@@ -23,7 +20,7 @@ def create_pipeline(**kwargs) -> Pipeline:
         name="merge_ticks_asof_node",
     )
 
-    # Enrich tick data
+    # 2. Enrich tick data (OFI, Microprice, Dollar Flow)
     tick_feature_node = node(
         func=calculate_tick_level_features,
         inputs="merged_tick_data",
@@ -31,7 +28,7 @@ def create_pipeline(**kwargs) -> Pipeline:
         name="calculate_tick_features_node",
     )
 
-    # Validate tick structure
+    # 3. Validate tick structure
     structural_guardrail_node = node(
         func=validate_enriched_tick_data,
         inputs="enriched_tick_data_unvalidated",
@@ -39,38 +36,33 @@ def create_pipeline(**kwargs) -> Pipeline:
         name="structural_guardrail_node",
     )
 
-    # Resample + Feature generation per timeframe
-    resample_and_feature_nodes = []
-    for tf in timeframes:
-        resample_and_feature_nodes.extend([
-            node(
-                func=partial(resample_to_time_bars, rule=tf),
-                inputs="enriched_tick_data",
-                outputs=f"resampled_data_{tf}",
-                name=f"resample_to_{tf}_bars_node",
-            ),
-            node(
-                func=generate_bar_features,
-                inputs=f"resampled_data_{tf}",
-                outputs=f"features_data_{tf}",
-                name=f"generate_bar_features_{tf}_node",
-            ),
-        ])
-
-    # Merge multi-timeframe feature sets
-    merge_inputs = {
-        f"features_{tf.replace('min', 'm')}": f"features_data_{tf}"
-        for tf in other_tfs
-    }
-
-    merge_node = node(
-        func=merge_multi_timeframe_features,
-        inputs={"base_features": f"features_data_{base_tf}", **merge_inputs},
-        outputs="features_data_unvalidated",
-        name="merge_multi_timeframe_features_node",
+    # 4. Calculate EWMA/CVD features at the TBT level (Activity + Wall Clock)
+    ewma_node = node(
+        func=calculate_ewma_features,
+        inputs="enriched_tick_data",
+        outputs="ewma_features_tbt",
+        name="calculate_ewma_features_node"
     )
 
-    # Logical validation
+    # 5. Sample TBT features onto a high-frequency grid (25ms)
+    sampling_node = node(
+        # Use 25ms as the default high-frequency sampling interval
+        func=partial(sample_features_to_grid, rule='25ms'),
+        inputs="ewma_features_tbt",
+        outputs="features_data_unvalidated_raw", # Intermediate name for the sampled grid
+        name="sample_features_to_25ms_grid_node",
+    )
+    
+    # 6. Calculate secondary features (RSI, Hurst Exponent) on the 25ms grid
+    secondary_feature_node = node(
+        # generate_bar_features is re-purposed to run on the clean, dense grid
+        func=generate_bar_features,
+        inputs="features_data_unvalidated_raw",
+        outputs="features_data_unvalidated", # Final unvalidated feature set
+        name="calculate_secondary_features_on_grid_node",
+    )
+
+    # 7. Logical validation
     logical_guardrail_node = node(
         func=validate_features_data_logic,
         inputs="features_data_unvalidated",
@@ -82,7 +74,8 @@ def create_pipeline(**kwargs) -> Pipeline:
         initial_merge_node,
         tick_feature_node,
         structural_guardrail_node,
-        *resample_and_feature_nodes,
-        merge_node,
+        ewma_node,
+        sampling_node,
+        secondary_feature_node,
         logical_guardrail_node,
     ])
