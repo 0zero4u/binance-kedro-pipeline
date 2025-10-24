@@ -12,8 +12,8 @@ def create_pipeline(**kwargs) -> Pipeline:
         ),
         node(
             func=train_lgbm_model,
-            inputs=["labeled_data", "params:lgbm_params"],
+            inputs=["labeled_data", "params:lgbm.lgbm_params", "params:lgbm.training_params"],
             outputs=["lgbm_model", "lgbm_eval_results"],
-            name="train_lgbm_node",
+            name="train_lgbm_with_optuna_node",
         ),
     ])
