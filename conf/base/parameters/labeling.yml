@@ -8,8 +8,9 @@ labeling_params:
   stop_loss_gross_pct: 0.0002    # 0.02%
   fee_pct: 0.00025               # 0.025% per trade for net calculation
   
-  # Shared time barrier (450 * 100ms = 45 seconds)
-  time_barrier_periods: 450
+  # Shared time barrier (450 * 100ms = 45 seconds). NOTE: This must be updated 
+  # for 25ms grid (450 * 100ms = 45s => 1800 * 25ms = 45s)
+  time_barrier_periods: 1800
 
   # --- Volatility-Based Parameters (if method is 'volatility') ---
   vol_lookback: 50
