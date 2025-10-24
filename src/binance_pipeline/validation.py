@@ -68,26 +68,38 @@ def validate_enriched_tick_data(df: pd.DataFrame) -> pd.DataFrame:
 
 def validate_features_data_logic(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Applies a robust, simplified cleaning process and logical guardrail to the final features data.
+    Applies the definitive, robust cleaning process and logical guardrail to the final features data.
     """
     log.info(f"Applying LOGICAL guardrail to features_data (shape: {df.shape})...")
     
-    # --- FIX: Implement a robust, simplified cleaning process ---
-    log.info("  - Cleaning data: Replacing infs, forward-filling, and dropping final NaNs...")
+    key_feature = 'taker_flow_rollsum_60s'
+    if key_feature not in df.columns:
+        log.error(f"FATAL: Key feature '{key_feature}' not in DataFrame. Cannot proceed.")
+        raise ValueError(f"Missing key feature for cleaning: {key_feature}")
+
+    # --- ENHANCED LOGGING BLOCK ---
+    log.info("--- DETAILED DEBUG LOGGING ---")
+    nan_count_initial = df[key_feature].isna().sum()
+    log.info(f"1. Initial State: NaN count in '{key_feature}' = {nan_count_initial} out of {len(df)} rows.")
+    log.info(f"   - Head of '{key_feature}':\n{df[key_feature].head().to_string()}")
+    log.info(f"   - Tail of '{key_feature}':\n{df[key_feature].tail().to_string()}")
     
     # Step 1: Replace any infinite values that may have been created
     df.replace([np.inf, -np.inf], np.nan, inplace=True)
     
     # Step 2: Forward-fill to handle ALL intermittent NaNs from sensitive features.
-    nans_before = df.isna().sum().sum()
+    log.info("2. Performing forward-fill...")
     df.ffill(inplace=True)
-    nans_after = df.isna().sum().sum()
-    log.info(f"  - Filled {nans_before - nans_after} NaN values.")
-
-    # Step 3: A single, final dropna to remove any NaNs remaining at the start of the series.
+    nan_count_after_ffill = df[key_feature].isna().sum()
+    log.info(f"3. After ffill: NaN count in '{key_feature}' = {nan_count_after_ffill}")
+    log.info(f"   - Head of '{key_feature}' after ffill:\n{df[key_feature].head().to_string()}")
+    
+    # Step 3: Use a SINGLE reliable long-window feature to drop the initial warm-up period.
     initial_rows = len(df)
-    df.dropna(inplace=True)
-    log.info(f"  - Dropped {initial_rows - len(df)} initial warm-up rows. Final shape: {df.shape}")
+    log.info(f"4. Applying dropna(subset=['{key_feature}']) on DataFrame with {initial_rows} rows...")
+    df.dropna(subset=[key_feature], inplace=True)
+    log.info(f"5. After dropna: Dropped {initial_rows - len(df)} rows. Final shape: {df.shape}")
+    log.info("--- END DETAILED DEBUG LOGGING ---")
 
     if df.empty:
         log.warning("Input to 'validate_features_data_logic' is an empty DataFrame AFTER cleaning. Skipping logical checks.")
@@ -95,9 +107,8 @@ def validate_features_data_logic(df: pd.DataFrame) -> pd.DataFrame:
 
     try:
         # Logical Check: Correlation between returns and order flow.
-        cvd_feature = 'taker_flow_rollsum_60s'
-        correlation = df['returns'].corr(df[cvd_feature])
-        log.info(f"Correlation(returns, {cvd_feature}) = {correlation:.4f}")
+        correlation = df[key_feature].corr(df['returns'])
+        log.info(f"Correlation(returns, {key_feature}) = {correlation:.4f}")
         
         assert correlation > 0.001, f"Logical check failed: Correlation between returns and CVD is not positive ({correlation:.4f}). This indicates a potential bug in feature logic."
 
