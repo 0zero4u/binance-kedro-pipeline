@@ -8,10 +8,13 @@ from .nodes import (
     generate_bar_features, 
 )
 from .validation import validate_enriched_tick_data, validate_features_data_logic
+from .features import AdvancedFeatureEngine
 
 
 def create_pipeline(**kwargs) -> Pipeline:
     
+    adv_feature_engine = AdvancedFeatureEngine()
+
     # 1. Initial merge (Trade + Book)
     initial_merge_node = node(
         func=merge_book_trade_asof,
@@ -36,7 +39,7 @@ def create_pipeline(**kwargs) -> Pipeline:
         name="structural_guardrail_node",
     )
 
-    # 4. Calculate EWMA/CVD features at the TBT level (Activity + Wall Clock)
+    # 4. Calculate EWMA/CVD features at the TBT level
     ewma_node = node(
         func=calculate_ewma_features,
         inputs="enriched_tick_data",
@@ -48,19 +51,35 @@ def create_pipeline(**kwargs) -> Pipeline:
     sampling_node = node(
         func=partial(sample_features_to_grid, rule='25ms'),
         inputs="ewma_features_tbt",
-        outputs="features_data_unvalidated_raw",
+        outputs="sampled_grid_data",
         name="sample_features_to_25ms_grid_node",
     )
     
     # 6. Calculate secondary features (RSI, Hurst Exponent) on the 25ms grid
     secondary_feature_node = node(
         func=generate_bar_features,
-        inputs="features_data_unvalidated_raw",
-        outputs="features_data_unvalidated",
+        inputs="sampled_grid_data",
+        outputs="grid_with_secondary_features",
         name="calculate_secondary_features_on_grid_node"
     )
+
+    # 7. NEW: Add advanced microstructure features
+    microstructure_node = node(
+        func=adv_feature_engine.calculate_microstructure_features,
+        inputs="grid_with_secondary_features",
+        outputs="grid_with_microstructure_features",
+        name="add_microstructure_features_node"
+    )
     
-    # 7. Logical validation
+    # 8. NEW: Add advanced order flow features
+    order_flow_node = node(
+        func=adv_feature_engine.calculate_order_flow_derivatives,
+        inputs="grid_with_microstructure_features",
+        outputs="features_data_unvalidated",
+        name="add_order_flow_derivatives_node"
+    )
+
+    # 9. Logical validation
     logical_guardrail_node = node(
         func=validate_features_data_logic,
         inputs="features_data_unvalidated",
@@ -75,5 +94,8 @@ def create_pipeline(**kwargs) -> Pipeline:
         ewma_node,
         sampling_node,
         secondary_feature_node,
+        microstructure_node,
+        order_flow_node,
         logical_guardrail_node,
     ])
+    
