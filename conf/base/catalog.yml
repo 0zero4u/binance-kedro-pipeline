@@ -32,12 +32,18 @@ trade_raw:
 
 # 02_intermediate
 merged_tick_data: {type: kedro_datasets.pandas.ParquetDataset, filepath: "data/02_intermediate/merged_tick_data.parquet"}
-enriched_tick_data_unvalidated: {type: MemoryDataSet}
-enriched_tick_data: {type: MemoryDataSet}
-ewma_features_tbt: {type: MemoryDataSet}
+
+# --- DEBUGGING: Change MemoryDataSet to ParquetDataSet to create checkpoints ---
+enriched_tick_data_unvalidated: {type: kedro_datasets.pandas.ParquetDataset, filepath: "data/02_intermediate/enriched_tick_data_unvalidated.parquet"}
+enriched_tick_data: {type: kedro_datasets.pandas.ParquetDataset, filepath: "data/02_intermediate/enriched_tick_data.parquet"}
+ewma_features_tbt: {type: kedro_datasets.pandas.ParquetDataset, filepath: "data/02_intermediate/ewma_features_tbt.parquet"}
+# Add entries for the other intermediate datasets in the pipeline
+sampled_grid_data: {type: kedro_datasets.pandas.ParquetDataset, filepath: "data/02_intermediate/sampled_grid_data.parquet"}
+grid_with_secondary_features: {type: kedro_datasets.pandas.ParquetDataset, filepath: "data/02_intermediate/grid_with_secondary_features.parquet"}
+grid_with_microstructure_features: {type: kedro_datasets.pandas.ParquetDataset, filepath: "data/02_intermediate/grid_with_microstructure_features.parquet"}
 
 # 03_primary
-features_data_unvalidated: {type: MemoryDataSet}
+features_data_unvalidated: {type: kedro_datasets.pandas.ParquetDataset, filepath: "data/03_primary/features_data_unvalidated.parquet"}
 features_data: {type: kedro_datasets.pandas.ParquetDataset, filepath: "data/03_primary/features_data.parquet"}
 
 # 05_model_input (LGBM)
