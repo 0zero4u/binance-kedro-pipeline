@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np  # <-- FIX: Add the missing numpy import
 import pandera as pa
 from pandera.typing import DataFrame, Series
 import logging
