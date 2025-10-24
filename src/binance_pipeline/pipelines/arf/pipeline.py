@@ -1,6 +1,7 @@
 from kedro.pipeline import Pipeline, node
 from .nodes import (
     generate_arf_features,
+    generate_arf_hpo_configs,
     fit_robust_scaler,
     apply_robust_scaling,
     train_arf_ensemble,
@@ -35,11 +36,19 @@ def create_pipeline(**kwargs) -> Pipeline:
             outputs="scaled_data_arf",
             name="apply_robust_scaling_node",
         ),
+        # --- NEW NODE to generate HPO configs ---
+        node(
+            func=generate_arf_hpo_configs,
+            inputs="params:arf.hpo_params",
+            outputs="arf_hpo_configs",
+            name="generate_arf_hpo_configs_node"
+        ),
+        # --- UPDATED NODE to use HPO configs ---
         node(
             func=train_arf_ensemble,
-            inputs=["scaled_data_arf", "params:arf.training_params"],
+            inputs=["scaled_data_arf", "arf_hpo_configs"],
             outputs="arf_training_results",
-            name="train_arf_ensemble_node",
+            name="train_arf_ensemble_with_hpo_node",
         ),
         node(
             func=select_best_arf_model,
@@ -48,4 +57,3 @@ def create_pipeline(**kwargs) -> Pipeline:
             name="select_best_arf_model_node",
         ),
     ])
-        
