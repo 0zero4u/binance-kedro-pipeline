@@ -15,4 +15,4 @@ lgbm_params:
   subsample: 0.8              # new (row subsampling)
   subsample_freq: 5           # new
   reg_alpha: 0.2              # was 0.1 (stronger L1)
-  reg_lambda: 0.3             # was 0.1 (stronger L2)
+  reg_lambda: 0.3             # was 0.1 
