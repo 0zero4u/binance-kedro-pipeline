@@ -89,6 +89,13 @@ def merge_book_trade_asof(book_raw: pd.DataFrame, trade_raw: pd.DataFrame) -> pd
     merged_df["spread"] = merged_df["best_ask_price"] - merged_df["best_bid_price"]
     merged_df["spread_bps"] = (merged_df["spread"] / merged_df["mid_price"]) * 10000
 
+    # --- FIX FOR MEMORY CRASH: Process only the first 6 hours of data ---
+    log.info("  - Slicing data to the first 6 hours to prevent OOM errors...")
+    first_timestamp = merged_df['timestamp'].min()
+    six_hours_later = first_timestamp + (6 * 60 * 60 * 1000) # 6 hours in milliseconds
+    merged_df = merged_df[merged_df['timestamp'] <= six_hours_later].copy()
+    log.info(f"  - Data sliced. New shape: {merged_df.shape}")
+
     log.info(f"As-of merge complete. Resulting shape: {merged_df.shape}")
     return merged_df
 
