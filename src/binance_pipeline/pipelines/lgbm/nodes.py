@@ -64,4 +64,4 @@ def train_lgbm_model(labeled_data: pd.DataFrame, params: dict) -> Tuple[lgb.LGBM
     eval_results = {'cv_scores': cv_scores, 'feature_importance': feature_importance.to_dict()}
     
     return final_model, eval_results
-    
+  
