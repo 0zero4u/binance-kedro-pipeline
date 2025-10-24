@@ -1,4 +1,3 @@
-
 feature_params:
   percentile_windows: 
     '5s': 50
@@ -7,18 +6,37 @@ feature_params:
     '1min': 600
     '3min': 1800
     '5min': 3000
+  
+  features_to_rank:
+    - "mid_price_momentum"
+    - "taker_flow_rollsum_60s"
+    - "ofi_ewma_1m"
+    - "spread_bps_ewma_5s"
+    - "rsi_14"
+    - "hurst_100"
+    - "book_imbalance"
+    - "microprice_momentum"
+    - "vpin_50"
+    - "kyle_lambda_50"
 
-training_params:
-  models:
-    arf_conservative:
-      n_models: 15
-      lambda_value: 6
-      seed: 42
-    arf_aggressive:
-      n_models: 10
-      lambda_value: 3
-      seed: 43
-    arf_balanced:
-      n_models: 12
-      lambda_value: 4
-      seed: 44
+# --- UPDATED: Replaced training_params with hpo_params ---
+hpo_params:
+  # Number of different hyperparameter sets to generate and test in the ensemble.
+  n_trials: 15
+
+  # Search space for Optuna to explore for each trial.
+  search_space:
+    lambda_value:
+      type: "int"
+      low: 3
+      high: 10
+    grace_period:
+      type: "int"
+      low: 200
+      high: 800
+      step: 50
+    n_models:
+      type: "int"
+      low: 10
+      high: 25
+      
