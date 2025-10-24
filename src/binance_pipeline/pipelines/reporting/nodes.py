@@ -64,9 +64,11 @@ def create_unified_traceability_report(
         direction='backward'
     )
     
-    final_df.dropna(how='any', subset=[c for c in final_df.columns if c.startswith('ewma_') or c.startswith('feat_')], inplace=True)
+    # --- FIX FOR EMPTY REPORT: Use a more targeted dropna ---
+    # The old dropna was too aggressive and deleted rows during feature warm-up.
+    # This new version only drops rows if a key, fast-moving feature is null.
+    final_df.dropna(how='any', subset=['ewma_mid_price_ewma_5s', 'feat_mid_price'], inplace=True)
     
     log.info(f"Unified traceability report created with shape: {final_df.shape}")
     
     return final_df
-    
