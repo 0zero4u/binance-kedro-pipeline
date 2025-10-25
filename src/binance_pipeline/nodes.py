@@ -134,7 +134,15 @@ def calculate_ewma_features(df: pd.DataFrame) -> pd.DataFrame:
 
     df_pl = pl.from_pandas(df).lazy()
 
-    ewma_time_spans = {'5s': "5s", '15s': "15s", '1m': "1m", '3m': "3m", '15m': "15m"}
+    # --- FIX: Convert time spans to an approximate number of rows (integers) ---
+    # This is based on the target 25ms grid frequency (40 rows per second).
+    ewma_half_life_rows = {
+        '5s': 200,      # 5s * 40 rows/sec
+        '15s': 600,     # 15s * 40 rows/sec
+        '1m': 2400,     # 60s * 40 rows/sec
+        '3m': 7200,     # 180s * 40 rows/sec
+        '15m': 36000,   # 900s * 40 rows/sec
+    }
     FASTEST_SPAN_KEY = '5s'
     SLOWEST_SPAN_KEY = '15m'
     wall_clock_windows = {'60s': '60s'}
@@ -150,11 +158,10 @@ def calculate_ewma_features(df: pd.DataFrame) -> pd.DataFrame:
 
     ewma_exprs = []
     for feature in features_to_smooth:
-        for name, span_str in ewma_time_spans.items():
-            # --- CORRECTED LINE: Removed the invalid `by` argument ---
-            # This performs an event-based (tick clock) EWMA, which is extremely fast.
+        for name, half_life_int in ewma_half_life_rows.items():
+            # Pass the integer half-life to ewm_mean
             ewma_exprs.append(
-                pl.col(feature).ewm_mean(half_life=span_str).alias(f'{feature}_ewma_{name}')
+                pl.col(feature).ewm_mean(half_life=half_life_int).alias(f'{feature}_ewma_{name}')
             )
 
     df_pl = df_pl.with_columns(ewma_exprs)
@@ -175,7 +182,7 @@ def calculate_ewma_features(df: pd.DataFrame) -> pd.DataFrame:
     wall_clock_exprs = []
     for feature in ['taker_flow', 'ofi']:
         for name, window_str in wall_clock_windows.items():
-            # This rolling sum IS time-based and uses the index_column correctly.
+            # The rolling sum IS time-based and uses the duration string correctly.
             wall_clock_exprs.append(
                 pl.col(feature).rolling(index_column="datetime", period=window_str).sum().alias(f'{feature}_rollsum_{name}')
             )
@@ -187,7 +194,7 @@ def calculate_ewma_features(df: pd.DataFrame) -> pd.DataFrame:
     log.info(f"Polars TBT feature calculation complete in {time.time() - start_time:.2f} seconds. Total features: {len(df_out.columns)}")
     return df_out
 
-# --- Sampling Node (FIXED to prevent OOM error, unchanged from previous fix) ---
+# --- Sampling Node (FIXED to prevent OOM error, unchanged) ---
 def sample_features_to_grid(df: pd.DataFrame, rule: str = '25ms') -> pd.DataFrame:
     """
     Samples the EWMA tick-by-tick features onto a fixed time grid (e.g., 25ms)
