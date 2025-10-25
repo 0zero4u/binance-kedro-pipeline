@@ -55,7 +55,8 @@ def create_unified_traceability_report(
     end_time = start_time + pd.Timedelta(minutes=5)
     
     tbt = merged_tick_data[merged_tick_data['datetime'] <= end_time].copy()
-    ewma = ewma_features_tbt[ewma_features_tbt['datetime'] <= end_time].cop4importtt  feats = features_data[features_data['datetime'] <= end_time].copy()
+    ewma = ewma_features_tbt[ewma_features_tbt['datetime'] <= end_time].copy()
+    feats = features_data[features_data['datetime'] <= end_time].copy()
     
     log.info(f"Data shapes for report (first 5 mins): Ticks={tbt.shape}, EWMA TBT={ewma.shape}, Features={feats.shape}")
     
