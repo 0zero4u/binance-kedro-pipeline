@@ -32,7 +32,7 @@ dependencies = [
     "numba>=0.57.0",               # Numba is relatively stable, keep as is
     "scikit-learn>=1.7.0",         # Latest stable version
     "lightgbm>=4.0.0",             # Still the current major version series
-    "river>=0.21.0",               # Updated to a more recent version
+    "river>=0.22.0",               # Updated to a more recent version
     "ta>=0.11.0",                  # This library is stable, no change needed
     "requests",                    # Keep as is, very stable API
     "tqdm",                        # Keep as is, very stable API
