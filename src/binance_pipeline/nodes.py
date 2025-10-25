@@ -12,6 +12,7 @@ import numba
 import time
 from tqdm import tqdm
 import polars as pl
+import tempfile # <-- NEW: Import tempfile for IO-based processing
 
 log = logging.getLogger(__name__)
 
@@ -55,7 +56,6 @@ def merge_book_trade_asof(book_raw: pd.DataFrame, trade_raw: pd.DataFrame) -> pd
     log.info(f"  - Input 'book_raw' shape: {book_raw.shape}")
     log.info(f"  - Input 'trade_raw' shape: {trade_raw.shape}")
 
-    log.info("  - Preparing trade data (converting to Polars, sorting, and casting)...")
     trades_pl = (
         pl.from_pandas(trade_raw)
         .select(["time", "price", "qty", "is_buyer_maker"])
@@ -64,8 +64,6 @@ def merge_book_trade_asof(book_raw: pd.DataFrame, trade_raw: pd.DataFrame) -> pd
         .drop_nulls(subset="timestamp")
         .sort("timestamp")
     )
-
-    log.info("  - Preparing book data (converting to Polars, sorting, and casting)...")
     book_pl = (
         pl.from_pandas(book_raw)
         .select(["event_time", "best_bid_price", "best_ask_price", "best_bid_qty", "best_ask_qty"])
@@ -76,7 +74,6 @@ def merge_book_trade_asof(book_raw: pd.DataFrame, trade_raw: pd.DataFrame) -> pd
         .sort("timestamp")
     )
 
-    log.info("  - Performing Polars join_asof (this is the fastest part of this node)...")
     start_time = time.time()
     merged_pl = trades_pl.join_asof(book_pl, on="timestamp", strategy="backward")
     log.info(f"  - Polars as-of join completed in {time.time() - start_time:.2f} seconds.")
@@ -94,7 +91,6 @@ def merge_book_trade_asof(book_raw: pd.DataFrame, trade_raw: pd.DataFrame) -> pd
     )
     
     merged_df = final_pl.to_pandas()
-
     log.info(f"Polars as-of merge complete. Resulting shape: {merged_df.shape}")
     return merged_df
 
@@ -122,76 +118,72 @@ def calculate_tick_level_features(df: pd.DataFrame) -> pd.DataFrame:
     log.info("Tick-level feature calculation complete.")
     return df
 
-# --- EWMA TBT Feature Calculation Node (UPGRADED to POLARS and CORRECTED) ---
+# --- EWMA TBT Feature Node (UPGRADED with STREAMING IO) ---
 def calculate_ewma_features(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Calculates Exponentially Weighted Moving Average (EWMA) features
-    and Rolling Sums using the high-performance Polars library for a significant speedup.
-    Polars uses all available CPU cores for these calculations.
+    Calculates EWMA and other features using a streaming approach to prevent
+    out-of-memory errors on large datasets. It uses Polars' lazy engine to
+    compute features and sinks the result directly to a temporary disk file
+    before loading it back into pandas.
     """
-    log.info(f"Calculating TBT EWMA & Wall Clock features with Polars for shape {df.shape}...")
+    log.info(f"Calculating TBT features with STREAMING IO for shape {df.shape}...")
     start_time = time.time()
 
-    df_pl = pl.from_pandas(df).lazy()
+    with tempfile.NamedTemporaryFile(suffix=".parquet") as tmp:
+        output_path = tmp.name
+        log.info(f"  - Using temporary file for processing: {output_path}")
 
-    # --- FIX: Convert time spans to an approximate number of rows (integers) ---
-    # This is based on the target 25ms grid frequency (40 rows per second).
-    ewma_half_life_rows = {
-        '5s': 200,      # 5s * 40 rows/sec
-        '15s': 600,     # 15s * 40 rows/sec
-        '1m': 2400,     # 60s * 40 rows/sec
-        '3m': 7200,     # 180s * 40 rows/sec
-        '15m': 36000,   # 900s * 40 rows/sec
-    }
-    FASTEST_SPAN_KEY = '5s'
-    SLOWEST_SPAN_KEY = '15m'
-    wall_clock_windows = {'60s': '60s'}
+        df_pl = pl.from_pandas(df).lazy()
 
-    df_pl = df_pl.with_columns(
-        pl.from_epoch(pl.col("timestamp"), time_unit="ms").alias("datetime")
-    ).sort("datetime")
+        ewma_half_life_rows = {
+            '5s': 200, '15s': 600, '1m': 2400, '3m': 7200, '15m': 36000,
+        }
+        FASTEST_SPAN_KEY = '5s'
+        SLOWEST_SPAN_KEY = '15m'
+        wall_clock_windows = {'60s': '60s'}
 
-    features_to_smooth = [
-        'mid_price', 'spread', 'spread_bps', 'microprice',
-        'taker_flow', 'ofi', 'book_imbalance', 'price', 'qty'
-    ]
+        df_pl = df_pl.with_columns(
+            pl.from_epoch(pl.col("timestamp"), time_unit="ms").alias("datetime")
+        ).sort("datetime")
 
-    ewma_exprs = []
-    for feature in features_to_smooth:
-        for name, half_life_int in ewma_half_life_rows.items():
-            # Pass the integer half-life to ewm_mean
-            ewma_exprs.append(
-                pl.col(feature).ewm_mean(half_life=half_life_int).alias(f'{feature}_ewma_{name}')
-            )
+        features_to_smooth = [
+            'mid_price', 'spread', 'spread_bps', 'microprice',
+            'taker_flow', 'ofi', 'book_imbalance', 'price', 'qty'
+        ]
 
-    df_pl = df_pl.with_columns(ewma_exprs)
+        # 1. Build the full lazy query plan
+        ewma_exprs = [
+            pl.col(feat).ewm_mean(half_life=hl).alias(f'{feat}_ewma_{name}')
+            for feat in features_to_smooth
+            for name, hl in ewma_half_life_rows.items()
+        ]
+        df_pl = df_pl.with_columns(ewma_exprs)
 
-    momentum_accel_exprs = []
-    for feature in features_to_smooth:
-        fast_col = f'{feature}_ewma_{FASTEST_SPAN_KEY}'
-        slow_col = f'{feature}_ewma_{SLOWEST_SPAN_KEY}'
-        
-        if feature in ['mid_price', 'microprice', 'taker_flow', 'ofi', 'spread_bps']:
-            momentum_accel_exprs.append((pl.col(fast_col) - pl.col(slow_col)).alias(f'{feature}_momentum'))
+        momentum_accel_exprs = []
+        for feature in features_to_smooth:
+            fast_col, slow_col = f'{feature}_ewma_{FASTEST_SPAN_KEY}', f'{feature}_ewma_{SLOWEST_SPAN_KEY}'
+            if feature in ['mid_price', 'microprice', 'taker_flow', 'ofi', 'spread_bps']:
+                momentum_accel_exprs.append((pl.col(fast_col) - pl.col(slow_col)).alias(f'{feature}_momentum'))
+            momentum_accel_exprs.append(pl.col(fast_col).diff(1).alias(f'{feature}_velocity'))
+            momentum_accel_exprs.append(pl.col(fast_col).diff(1).diff(1).alias(f'{feature}_accel'))
+        df_pl = df_pl.with_columns(momentum_accel_exprs)
 
-        momentum_accel_exprs.append(pl.col(fast_col).diff(1).alias(f'{feature}_velocity'))
-        momentum_accel_exprs.append(pl.col(fast_col).diff(1).diff(1).alias(f'{feature}_accel'))
+        wall_clock_exprs = [
+            pl.col(feat).rolling(index_column="datetime", period=win_str).sum().alias(f'{feat}_rollsum_{name}')
+            for feat in ['taker_flow', 'ofi']
+            for name, win_str in wall_clock_windows.items()
+        ]
+        df_pl = df_pl.with_columns(wall_clock_exprs)
 
-    df_pl = df_pl.with_columns(momentum_accel_exprs)
+        # 2. Execute query and STREAM result to disk, avoiding memory explosion
+        log.info("  - Executing lazy query and sinking results to disk...")
+        df_pl.sink_parquet(output_path)
+        log.info("  - Sink complete. Now loading result back into memory.")
 
-    wall_clock_exprs = []
-    for feature in ['taker_flow', 'ofi']:
-        for name, window_str in wall_clock_windows.items():
-            # The rolling sum IS time-based and uses the duration string correctly.
-            wall_clock_exprs.append(
-                pl.col(feature).rolling(index_column="datetime", period=window_str).sum().alias(f'{feature}_rollsum_{name}')
-            )
+        # 3. Load the optimized Parquet file back into pandas
+        df_out = pd.read_parquet(output_path)
 
-    df_pl = df_pl.with_columns(wall_clock_exprs)
-
-    df_out = df_pl.collect().to_pandas()
-
-    log.info(f"Polars TBT feature calculation complete in {time.time() - start_time:.2f} seconds. Total features: {len(df_out.columns)}")
+    log.info(f"Streaming feature calculation complete in {time.time() - start_time:.2f}s. Final shape: {df_out.shape}")
     return df_out
 
 # --- Sampling Node (FIXED to prevent OOM error, unchanged) ---
