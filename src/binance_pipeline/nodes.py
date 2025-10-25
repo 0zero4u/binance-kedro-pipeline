@@ -11,11 +11,11 @@ from typing import Dict, Tuple
 import numba
 import time
 from tqdm import tqdm
-import polars as pl  # <-- NEW: Import Polars
+import polars as pl  # <-- Import Polars
 
 log = logging.getLogger(__name__)
 
-# --- Download Node ---
+# --- Download Node (Unchanged) ---
 def download_and_unzip(url: str, output_dir: str):
     """Downloads and extracts data from URL with a live progress bar."""
     p_output_dir = Path(output_dir)
@@ -45,7 +45,7 @@ def download_and_unzip(url: str, output_dir: str):
     os.remove(zip_path)
     log.info(f"Download and unzip complete for {file_name}.")
 
-# --- Merge Node (High-Performance with Polars) ---
+# --- Merge Node (Unchanged, already high-performance) ---
 def merge_book_trade_asof(book_raw: pd.DataFrame, trade_raw: pd.DataFrame) -> pd.DataFrame:
     """
     Merges book and trade data using a high-performance as-of join with Polars.
@@ -55,7 +55,6 @@ def merge_book_trade_asof(book_raw: pd.DataFrame, trade_raw: pd.DataFrame) -> pd
     log.info(f"  - Input 'book_raw' shape: {book_raw.shape}")
     log.info(f"  - Input 'trade_raw' shape: {trade_raw.shape}")
 
-    # Prepare trades using the expressive and fast Polars API
     log.info("  - Preparing trade data (converting to Polars, sorting, and casting)...")
     trades_pl = (
         pl.from_pandas(trade_raw)
@@ -66,7 +65,6 @@ def merge_book_trade_asof(book_raw: pd.DataFrame, trade_raw: pd.DataFrame) -> pd
         .sort("timestamp")
     )
 
-    # Prepare book data
     log.info("  - Preparing book data (converting to Polars, sorting, and casting)...")
     book_pl = (
         pl.from_pandas(book_raw)
@@ -78,13 +76,11 @@ def merge_book_trade_asof(book_raw: pd.DataFrame, trade_raw: pd.DataFrame) -> pd
         .sort("timestamp")
     )
 
-    # Perform the high-speed as-of join using Polars
     log.info("  - Performing Polars join_asof (this is the fastest part of this node)...")
     start_time = time.time()
     merged_pl = trades_pl.join_asof(book_pl, on="timestamp", strategy="backward")
     log.info(f"  - Polars as-of join completed in {time.time() - start_time:.2f} seconds.")
     
-    # Calculate basic features and clean up within Polars
     final_pl = (
         merged_pl
         .drop_nulls(subset=["best_bid_price", "best_ask_price"])
@@ -97,13 +93,12 @@ def merge_book_trade_asof(book_raw: pd.DataFrame, trade_raw: pd.DataFrame) -> pd
         ])
     )
     
-    # Convert back to Pandas for compatibility with the rest of the pipeline
     merged_df = final_pl.to_pandas()
 
     log.info(f"Polars as-of merge complete. Resulting shape: {merged_df.shape}")
     return merged_df
 
-# --- Tick-Level Features Node ---
+# --- Tick-Level Features Node (Unchanged) ---
 def calculate_tick_level_features(df: pd.DataFrame) -> pd.DataFrame:
     """Calculates advanced tick-level features."""
     log.info(f"Calculating advanced tick-level features for dataframe of shape {df.shape}...")
@@ -127,106 +122,117 @@ def calculate_tick_level_features(df: pd.DataFrame) -> pd.DataFrame:
     log.info("Tick-level feature calculation complete.")
     return df
 
-# --- EWMA TBT Feature Calculation Node ---
+# --- EWMA TBT Feature Calculation Node (UPGRADED to POLARS for SPEED) ---
 def calculate_ewma_features(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Calculates Exponentially Weighted Moving Average (EWMA) features 
-    (Activity Clock) and Rolling Sums (Wall Clock) directly on the tick data 
-    using a multi-span half-life approach (V4: 5s, 15s, 1m, 3m, 15m).
+    Calculates Exponentially Weighted Moving Average (EWMA) features
+    and Rolling Sums using the high-performance Polars library for a significant speedup.
+    Polars uses all available CPU cores for these calculations.
     """
-    log.info(f"Calculating TBT EWMA and Wall Clock features for dataframe of shape {df.shape}...")
-    df_out = df.copy()
+    log.info(f"Calculating TBT EWMA & Wall Clock features with Polars for shape {df.shape}...")
+    start_time = time.time()
 
-    # Define EWMA time-based half-life spans (in milliseconds) - Activity Clock
-    ewma_time_spans = {
-        '5s': 5000,
-        '15s': 15000,
-        '1m': 60000,
-        '3m': 180000,
-        '15m': 900000, 
-    }
-    # Define the fastest and slowest span keys for core momentum calculation
+    # Convert to Polars LazyFrame for optimal performance
+    df_pl = pl.from_pandas(df).lazy()
+
+    ewma_time_spans = {'5s': "5s", '15s': "15s", '1m': "1m", '3m': "3m", '15m': "15m"}
     FASTEST_SPAN_KEY = '5s'
     SLOWEST_SPAN_KEY = '15m'
-    
-    # Define Wall Clock rolling windows (in Pandas time strings)
-    wall_clock_windows = {
-        '60s': '60s' # For CVD calculation
-    }
+    wall_clock_windows = {'60s': '60s'}
 
-    # Time column must be datetime for EWM implementation
-    df_out['datetime'] = pd.to_datetime(df_out['timestamp'], unit='ms')
-    df_out = df_out.set_index('datetime')
-    
-    # Features to apply EWMA to
+    # Ensure timestamp is a datetime for time-based operations
+    df_pl = df_pl.with_columns(
+        pl.from_epoch(pl.col("timestamp"), time_unit="ms").alias("datetime")
+    ).sort("datetime")
+
     features_to_smooth = [
-        'mid_price', 'spread', 'spread_bps', 'microprice', 
+        'mid_price', 'spread', 'spread_bps', 'microprice',
         'taker_flow', 'ofi', 'book_imbalance', 'price', 'qty'
     ]
-    
-    for feature in features_to_smooth:
-        
-        # 1. EWMA Features (Activity Clock)
-        for name, span_ms in ewma_time_spans.items():
-            # Use halflife (exponential decay) based on the time span
-            ewm_series = df_out[feature].ewm(halflife=f'{span_ms}ms', times=df_out.index).mean()
-            df_out[f'{feature}_ewma_{name}'] = ewm_series
 
-        # 2. Momentum (Difference between fastest and slowest EWMA)
+    ewma_exprs = []
+    for feature in features_to_smooth:
+        for name, span_str in ewma_time_spans.items():
+            ewma_exprs.append(
+                pl.col(feature).ewm_mean(half_life=span_str, by="datetime").alias(f'{feature}_ewma_{name}')
+            )
+
+    df_pl = df_pl.with_columns(ewma_exprs)
+
+    momentum_accel_exprs = []
+    for feature in features_to_smooth:
         fast_col = f'{feature}_ewma_{FASTEST_SPAN_KEY}'
         slow_col = f'{feature}_ewma_{SLOWEST_SPAN_KEY}'
         
-        if fast_col in df_out.columns and slow_col in df_out.columns:
-             # Calculate momentum only if the feature is one where momentum makes sense (e.g., price, flow, spread)
-             if feature in ['mid_price', 'microprice', 'taker_flow', 'ofi', 'spread_bps']:
-                 df_out[f'{feature}_momentum'] = df_out[fast_col] - df_out[slow_col]
+        if feature in ['mid_price', 'microprice', 'taker_flow', 'ofi', 'spread_bps']:
+            momentum_accel_exprs.append((pl.col(fast_col) - pl.col(slow_col)).alias(f'{feature}_momentum'))
 
-        # 3. Wall Clock Features (Rolling Sum/CVD)
-        if feature in ['taker_flow', 'ofi']:
-            for name, window_str in wall_clock_windows.items():
-                df_out[f'{feature}_rollsum_{name}'] = df_out[feature].rolling(window=window_str).sum()
-                
-        # 4. Basic Velocity/Acceleration (of the fastest EWMA)
-        df_out[f'{feature}_velocity'] = df_out[fast_col].diff(1)
-        df_out[f'{feature}_accel'] = df_out[f'{feature}_velocity'].diff(1)
-            
-    df_out.reset_index(inplace=True)
-    log.info(f"TBT EWMA & Wall Clock feature calculation complete. Total features: {len(df_out.columns)}")
+        momentum_accel_exprs.append(pl.col(fast_col).diff(1).alias(f'{feature}_velocity'))
+        momentum_accel_exprs.append(pl.col(fast_col).diff(1).diff(1).alias(f'{feature}_accel'))
+
+    df_pl = df_pl.with_columns(momentum_accel_exprs)
+
+    wall_clock_exprs = []
+    for feature in ['taker_flow', 'ofi']:
+        for name, window_str in wall_clock_windows.items():
+            wall_clock_exprs.append(
+                pl.col(feature).rolling(index_column="datetime", period=window_str).sum().alias(f'{feature}_rollsum_{name}')
+            )
+
+    df_pl = df_pl.with_columns(wall_clock_exprs)
+
+    # Execute the lazy query and convert back to Pandas
+    df_out = df_pl.collect().to_pandas()
+
+    log.info(f"Polars TBT feature calculation complete in {time.time() - start_time:.2f} seconds. Total features: {len(df_out.columns)}")
     return df_out
 
+# --- Sampling Node (FIXED to prevent OOM error) ---
 def sample_features_to_grid(df: pd.DataFrame, rule: str = '25ms') -> pd.DataFrame:
     """
-    Samples the EWMA tick-by-tick features onto a fixed time grid (e.g., 25ms) 
-    using the 'last' observation for each interval and then forward-filling.
+    Samples the EWMA tick-by-tick features onto a fixed time grid (e.g., 25ms)
+    using a memory-efficient aggregation method instead of a full resample-ffill
+    to prevent Out-Of-Memory errors.
     """
-    log.info(f"Sampling TBT features onto a fixed {rule} grid...")
+    log.info(f"Sampling TBT features onto a fixed {rule} grid using memory-efficient aggregation...")
     
-    df_temp = df.copy()
-    if 'datetime' not in df_temp.columns:
-        df_temp['datetime'] = pd.to_datetime(df_temp['timestamp'], unit='ms')
-    df_temp = df_temp.set_index('datetime')
+    if df.empty:
+        log.warning("Input to 'sample_features_to_grid' is empty. Returning empty DataFrame.")
+        return pd.DataFrame()
+    
+    if 'datetime' not in df.columns:
+        df['datetime'] = pd.to_datetime(df['timestamp'], unit='ms')
+    df = df.set_index('datetime')
 
-    # 1. Resample by taking the LAST observation in the interval
-    sampled_df = df_temp.resample(rule).last()
-    
-    # 2. Forward fill missing grid points (essential for continuous features)
+    # 1. Define how to aggregate each column. For price, we want OHLC.
+    #    For most features, the 'last' value in the bin is the most representative.
+    feature_cols = [col for col in df.columns if col != 'price']
+    aggregations = {col: 'last' for col in feature_cols}
+    aggregations['price'] = 'ohlc'
+
+    # 2. Perform the aggregation. This creates a DataFrame with the correct target size
+    #    and avoids creating a massive, mostly-empty intermediate DataFrame.
+    sampled_df = df.resample(rule).agg(aggregations)
+
+    # 3. Clean up the multi-level columns created by the 'ohlc' aggregation.
+    if isinstance(sampled_df.columns, pd.MultiIndex):
+        sampled_df.columns = ['_'.join(col).strip() if col[1] else col[0] for col in sampled_df.columns.values]
+        rename_map = {'price_open': 'open', 'price_high': 'high', 'price_low': 'low', 'price_close': 'close'}
+        sampled_df.rename(columns=rename_map, inplace=True)
+
+    # 4. Now it's safe to forward-fill. This only fills empty 25ms intervals
+    #    where no trades occurred, which is a much smaller and manageable operation.
     sampled_df.ffill(inplace=True)
     
-    # 3. Drop initial NaNs generated by the EWMA warm-up period
+    # 5. Drop initial NaNs generated by the EWMA warm-up period
     sampled_df.dropna(inplace=True)
-
-    # Add OHLC price metrics to the final sampled grid for labeling
-    ohlc_df = df_temp['price'].resample(rule).agg('ohlc')
-    ohlc_df.columns = ['open', 'high', 'low', 'close']
     
-    final_df = sampled_df.join(ohlc_df, how='inner')
-    
-    log.info(f"Sampling complete. Output shape: {final_df.shape}")
-    return final_df.reset_index()
+    log.info(f"Memory-efficient sampling complete. Output shape: {sampled_df.shape}")
+    return sampled_df.reset_index()
 
 
 # =============================================================================
-# High-Performance Helper Functions for Feature Engineering
+# Helper Functions and Bar Features Node (Unchanged)
 # =============================================================================
 @numba.jit(nopython=True, fastmath=True)
 def _rolling_slope_numba(y: np.ndarray, window: int) -> np.ndarray:
@@ -264,7 +270,6 @@ def apply_rolling_numba(series: pd.Series, func, window: int) -> pd.Series:
     result = func(values, window)
     return pd.Series(result, index=series.index, name=series.name)
 
-# --- Secondary Feature Generation Node (RSI, Hurst, Temporal) ---
 def generate_bar_features(df: pd.DataFrame) -> pd.DataFrame:
     """
     Calculates secondary bar-based features (e.g., RSI, Hurst) on the 25ms grid.
@@ -276,38 +281,31 @@ def generate_bar_features(df: pd.DataFrame) -> pd.DataFrame:
     log.info(f"Generating secondary/legacy bar features (RSI, Hurst) for dataframe of shape {df.shape}...")
     df = df.copy()
     
-    # Basic price derivatives
     df['returns'] = df['close'].pct_change()
     df['log_returns'] = np.log(df['close'] / df['close'].shift(1))
     
-    # Technical Indicators
     df['rsi_14'] = ta.momentum.RSIIndicator(close=df['close'], window=14).rsi()
     df['rsi_28'] = ta.momentum.RSIIndicator(close=df['close'], window=28).rsi()
 
-    # Hurst Exponent Calculation (Regime Detection)
     def hurst(ts):
-        # Calculates Hurst Exponent using a simplified Rescaled Range approximation
         lags = range(2, 100)
         tau = [np.sqrt(np.std(np.subtract(ts[lag:], ts[:-lag]))) for lag in lags]
         poly = np.polyfit(np.log(lags), np.log(tau), 1)
         return poly[0] * 2.0
     
-    window_hurst = 100 # 100 * 25ms = 2.5 seconds
+    window_hurst = 100
     if len(df) > window_hurst:
         log.info(f"  -> Calculating Hurst Exponent (Window: {window_hurst} periods)")
         df['hurst_100'] = df['close'].rolling(window_hurst).apply(hurst, raw=True)
     else:
         log.warning(f"  -> Skipping Hurst calculation, DataFrame size ({len(df)}) is too small.")
         
-    # Temporal Features
     df['hour'] = df['datetime'].dt.hour
     df['minute'] = df['datetime'].dt.minute
     df['day_of_week'] = df['datetime'].dt.dayofweek
     df['hour_sin'] = np.sin(2 * np.pi * df['hour'] / 24)
     df['hour_cos'] = np.cos(2 * np.pi * df['hour'] / 24)
 
-
-    # Final cleanup
     df.replace([np.inf, -np.inf], np.nan, inplace=True)
     df.dropna(inplace=True)
     
