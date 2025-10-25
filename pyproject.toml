@@ -18,25 +18,30 @@ source = ["src", "*/site-packages"]
 [tool.coverage.run]
 source = ["binance_pipeline"]
 
-# --- FINAL, MODERNIZED [project] SECTION for October 2025 ---
+# --- FINAL, COMPATIBILITY-FOCUSED [project] SECTION for Managed Environments ---
 [project]
 name = "binance-kedro-pipeline"
 version = "0.18.14"
 dependencies = [
-    "kedro~=1.0.0",                 # Major stable release
-    "pandas~=2.3.3",               # Latest stable version
-    "numpy~=2.3.1",                # Modern NumPy 2.x series
-    "pyarrow",                     # Keep as is, works with latest pandas/polars
-    "polars>=1.34.0",              # Latest stable version
-    "scipy>=1.16.0",               # Latest stable version
-    "numba>=0.57.0",               # Numba is relatively stable, keep as is
-    "scikit-learn>=1.7.0",         # Latest stable version
-    "lightgbm>=4.0.0",             # Still the current major version series
-    "river>=0.22.0",               # Updated to a more recent version
-    "ta>=0.11.0",                  # This library is stable, no change needed
-    "requests",                    # Keep as is, very stable API
-    "tqdm",                        # Keep as is, very stable API
-    "pandera~=0.26.0",             # Significantly updated for new features
-    "pydantic>=2.12.0",            # Updated for new features and Python support
-    "optuna>=4.5.0",               # Updated for latest features
+    # Core Kedro (stable pre-1.0 to avoid major refactors)
+    "kedro~=0.18.14",
+    
+    # Pinned versions to satisfy the environment's requirements
+    "pandas==2.2.2",               # Required by google-colab and cudf
+    "numpy~=1.26.4",               # Required by tensorflow (<2.2.0)
+    "numba~=0.59.1",               # Required by cudf and dask-cuda (<0.62.0)
+    "polars~=1.28.0",              # Required by cudf-polars (<1.29)
+    "pydantic<2.12,>=2.0",         # Required by gradio (<2.12)
+    
+    # Other libraries, ensuring compatibility with the above pins
+    "pyarrow",
+    "scipy~=1.13.0",               # A version compatible with NumPy 1.26
+    "scikit-learn~=1.4.0",         # A version compatible with NumPy 1.26
+    "lightgbm>=4.0.0",
+    "river>=0.21.0",
+    "ta>=0.11.0",
+    "requests",
+    "tqdm",
+    "pandera~=0.19.0",             # Pandera 0.19 is compatible with pandas 2.2
+    "optuna>=3.5.0",               # Optuna is generally flexible
 ]
