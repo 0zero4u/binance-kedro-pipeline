@@ -12,7 +12,7 @@ import numba
 import time
 from tqdm import tqdm
 import polars as pl
-import tempfile # <-- NEW: Import tempfile for IO-based processing
+import tempfile
 
 log = logging.getLogger(__name__)
 
@@ -48,14 +48,8 @@ def download_and_unzip(url: str, output_dir: str):
 
 # --- Merge Node (Unchanged, already high-performance) ---
 def merge_book_trade_asof(book_raw: pd.DataFrame, trade_raw: pd.DataFrame) -> pd.DataFrame:
-    """
-    Merges book and trade data using a high-performance as-of join with Polars.
-    This is significantly faster and more memory-efficient than the Pandas equivalent.
-    """
+    """Merges book and trade data using a high-performance as-of join with Polars."""
     log.info("Starting fast as-of merge with Polars...")
-    log.info(f"  - Input 'book_raw' shape: {book_raw.shape}")
-    log.info(f"  - Input 'trade_raw' shape: {trade_raw.shape}")
-
     trades_pl = (
         pl.from_pandas(trade_raw)
         .select(["time", "price", "qty", "is_buyer_maker"])
@@ -73,11 +67,7 @@ def merge_book_trade_asof(book_raw: pd.DataFrame, trade_raw: pd.DataFrame) -> pd
         .unique(subset="timestamp", keep="last", maintain_order=True)
         .sort("timestamp")
     )
-
-    start_time = time.time()
     merged_pl = trades_pl.join_asof(book_pl, on="timestamp", strategy="backward")
-    log.info(f"  - Polars as-of join completed in {time.time() - start_time:.2f} seconds.")
-    
     final_pl = (
         merged_pl
         .drop_nulls(subset=["best_bid_price", "best_ask_price"])
@@ -89,76 +79,58 @@ def merge_book_trade_asof(book_raw: pd.DataFrame, trade_raw: pd.DataFrame) -> pd
             ((pl.col("spread") / pl.col("mid_price")) * 10000).alias("spread_bps")
         ])
     )
-    
-    merged_df = final_pl.to_pandas()
-    log.info(f"Polars as-of merge complete. Resulting shape: {merged_df.shape}")
-    return merged_df
+    return final_pl.to_pandas()
 
 # --- Tick-Level Features Node (Unchanged) ---
 def calculate_tick_level_features(df: pd.DataFrame) -> pd.DataFrame:
     """Calculates advanced tick-level features."""
     log.info(f"Calculating advanced tick-level features for dataframe of shape {df.shape}...")
-    df['microprice'] = (
-        (df['best_bid_price'] * df['best_ask_qty']) +
-        (df['best_ask_price'] * df['best_bid_qty'])
-    ) / (df['best_bid_qty'] + df['best_ask_qty'])
+    df['microprice'] = ((df['best_bid_price'] * df['best_ask_qty']) + (df['best_ask_price'] * df['best_bid_qty'])) / (df['best_bid_qty'] + df['best_ask_qty'])
     df['microprice'].ffill(inplace=True)
     df['taker_flow'] = np.where(df['is_buyer_maker'], -df['qty'], df['qty'])
-    bid_price_diff = df['best_bid_price'].diff()
-    ask_price_diff = df['best_ask_price'].diff()
-    bid_qty_diff = df['best_bid_qty'].diff()
-    ask_qty_diff = df['best_ask_qty'].diff()
+    bid_price_diff, ask_price_diff = df['best_bid_price'].diff(), df['best_ask_price'].diff()
+    bid_qty_diff, ask_qty_diff = df['best_bid_qty'].diff(), df['best_ask_qty'].diff()
     bid_pressure = np.where(bid_price_diff >= 0, bid_qty_diff, 0)
     ask_pressure = np.where(ask_price_diff <= 0, ask_qty_diff, 0)
     df['ofi'] = bid_pressure - ask_pressure
     df['ofi'].fillna(0, inplace=True)
-    df['book_imbalance'] = (df['best_bid_qty'] - df['best_ask_qty']) / (
-        df['best_bid_qty'] + df['best_ask_qty'] + 1e-10
-    )
+    df['book_imbalance'] = (df['best_bid_qty'] - df['best_ask_qty']) / (df['best_bid_qty'] + df['best_ask_qty'] + 1e-10)
     log.info("Tick-level feature calculation complete.")
     return df
 
-# --- EWMA TBT Feature Node (UPGRADED with STREAMING IO) ---
+# --- EWMA TBT Feature Node (UPGRADED with STAGED EXECUTION for PERFORMANCE) ---
 def calculate_ewma_features(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Calculates EWMA and other features using a streaming approach to prevent
-    out-of-memory errors on large datasets. It uses Polars' lazy engine to
-    compute features and sinks the result directly to a temporary disk file
-    before loading it back into pandas.
+    Calculates features using a STAGED streaming approach to be both memory-safe and high-performance.
+    Stage 1 calculates the expensive EWMAs. Stage 2 calculates fast derivatives from the result.
     """
-    log.info(f"Calculating TBT features with STREAMING IO for shape {df.shape}...")
+    log.info(f"Calculating TBT features with STAGED STREAMING IO for shape {df.shape}...")
     start_time = time.time()
 
-    with tempfile.NamedTemporaryFile(suffix=".parquet") as tmp:
-        output_path = tmp.name
-        log.info(f"  - Using temporary file for processing: {output_path}")
+    ewma_half_life_rows = {'5s': 200, '15s': 600, '1m': 2400, '3m': 7200, '15m': 36000}
+    FASTEST_SPAN_KEY, SLOWEST_SPAN_KEY = '5s', '15m'
+    wall_clock_windows = {'60s': '60s'}
+    features_to_smooth = ['mid_price', 'spread', 'spread_bps', 'microprice', 'taker_flow', 'ofi', 'book_imbalance', 'price', 'qty']
 
-        df_pl = pl.from_pandas(df).lazy()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        stage1_path = os.path.join(tmpdir, "stage1.parquet")
+        final_path = os.path.join(tmpdir, "final.parquet")
 
-        ewma_half_life_rows = {
-            '5s': 200, '15s': 600, '1m': 2400, '3m': 7200, '15m': 36000,
-        }
-        FASTEST_SPAN_KEY = '5s'
-        SLOWEST_SPAN_KEY = '15m'
-        wall_clock_windows = {'60s': '60s'}
-
-        df_pl = df_pl.with_columns(
-            pl.from_epoch(pl.col("timestamp"), time_unit="ms").alias("datetime")
-        ).sort("datetime")
-
-        features_to_smooth = [
-            'mid_price', 'spread', 'spread_bps', 'microprice',
-            'taker_flow', 'ofi', 'book_imbalance', 'price', 'qty'
-        ]
-
-        # 1. Build the full lazy query plan
+        # --- STAGE 1: Calculate expensive EWMA features and sink to disk ---
+        log.info("  - Starting Stage 1: Calculating core EWMAs...")
         ewma_exprs = [
             pl.col(feat).ewm_mean(half_life=hl).alias(f'{feat}_ewma_{name}')
-            for feat in features_to_smooth
-            for name, hl in ewma_half_life_rows.items()
+            for feat in features_to_smooth for name, hl in ewma_half_life_rows.items()
         ]
-        df_pl = df_pl.with_columns(ewma_exprs)
+        (pl.from_pandas(df).lazy()
+         .with_columns(pl.from_epoch(pl.col("timestamp"), time_unit="ms").alias("datetime"))
+         .sort("datetime")
+         .with_columns(ewma_exprs)
+         .sink_parquet(stage1_path))
+        log.info(f"  - Stage 1 complete in {time.time() - start_time:.2f}s.")
 
+        # --- STAGE 2: Lazily scan Stage 1 result and calculate simple derivatives ---
+        log.info("  - Starting Stage 2: Calculating derivatives and rolling sums...")
         momentum_accel_exprs = []
         for feature in features_to_smooth:
             fast_col, slow_col = f'{feature}_ewma_{FASTEST_SPAN_KEY}', f'{feature}_ewma_{SLOWEST_SPAN_KEY}'
@@ -166,35 +138,27 @@ def calculate_ewma_features(df: pd.DataFrame) -> pd.DataFrame:
                 momentum_accel_exprs.append((pl.col(fast_col) - pl.col(slow_col)).alias(f'{feature}_momentum'))
             momentum_accel_exprs.append(pl.col(fast_col).diff(1).alias(f'{feature}_velocity'))
             momentum_accel_exprs.append(pl.col(fast_col).diff(1).diff(1).alias(f'{feature}_accel'))
-        df_pl = df_pl.with_columns(momentum_accel_exprs)
 
         wall_clock_exprs = [
             pl.col(feat).rolling(index_column="datetime", period=win_str).sum().alias(f'{feat}_rollsum_{name}')
-            for feat in ['taker_flow', 'ofi']
-            for name, win_str in wall_clock_windows.items()
+            for feat in ['taker_flow', 'ofi'] for name, win_str in wall_clock_windows.items()
         ]
-        df_pl = df_pl.with_columns(wall_clock_exprs)
+        
+        # pl.scan_parquet keeps the operation lazy and memory-efficient
+        (pl.scan_parquet(stage1_path)
+         .with_columns(momentum_accel_exprs)
+         .with_columns(wall_clock_exprs)
+         .sink_parquet(final_path))
+        
+        df_out = pd.read_parquet(final_path)
 
-        # 2. Execute query and STREAM result to disk, avoiding memory explosion
-        log.info("  - Executing lazy query and sinking results to disk...")
-        df_pl.sink_parquet(output_path)
-        log.info("  - Sink complete. Now loading result back into memory.")
-
-        # 3. Load the optimized Parquet file back into pandas
-        df_out = pd.read_parquet(output_path)
-
-    log.info(f"Streaming feature calculation complete in {time.time() - start_time:.2f}s. Final shape: {df_out.shape}")
+    log.info(f"Staged feature calculation complete in {time.time() - start_time:.2f}s. Final shape: {df_out.shape}")
     return df_out
 
 # --- Sampling Node (FIXED to prevent OOM error, unchanged) ---
 def sample_features_to_grid(df: pd.DataFrame, rule: str = '25ms') -> pd.DataFrame:
-    """
-    Samples the EWMA tick-by-tick features onto a fixed time grid (e.g., 25ms)
-    using a memory-efficient aggregation method instead of a full resample-ffill
-    to prevent Out-Of-Memory errors.
-    """
+    """Samples features to a fixed time grid using memory-efficient aggregation."""
     log.info(f"Sampling TBT features onto a fixed {rule} grid using memory-efficient aggregation...")
-    
     if df.empty:
         log.warning("Input to 'sample_features_to_grid' is empty. Returning empty DataFrame.")
         return pd.DataFrame()
@@ -206,52 +170,41 @@ def sample_features_to_grid(df: pd.DataFrame, rule: str = '25ms') -> pd.DataFram
     feature_cols = [col for col in df.columns if col != 'price']
     aggregations = {col: 'last' for col in feature_cols}
     aggregations['price'] = 'ohlc'
-
     sampled_df = df.resample(rule).agg(aggregations)
 
     if isinstance(sampled_df.columns, pd.MultiIndex):
         sampled_df.columns = ['_'.join(col).strip() if col[1] else col[0] for col in sampled_df.columns.values]
-        rename_map = {'price_open': 'open', 'price_high': 'high', 'price_low': 'low', 'price_close': 'close'}
-        sampled_df.rename(columns=rename_map, inplace=True)
+        sampled_df.rename(columns={'price_open': 'open', 'price_high': 'high', 'price_low': 'low', 'price_close': 'close'}, inplace=True)
 
     sampled_df.ffill(inplace=True)
     sampled_df.dropna(inplace=True)
-    
     log.info(f"Memory-efficient sampling complete. Output shape: {sampled_df.shape}")
     return sampled_df.reset_index()
-
 
 # =============================================================================
 # Helper Functions and Bar Features Node (Unchanged)
 # =============================================================================
 @numba.jit(nopython=True, fastmath=True)
 def _rolling_slope_numba(y: np.ndarray, window: int) -> np.ndarray:
-    n = len(y)
-    out = np.full(n, np.nan)
-    x = np.arange(window)
-    sum_x = np.sum(x)
-    sum_x2 = np.sum(x * x)
+    n = len(y); out = np.full(n, np.nan); x = np.arange(window)
+    sum_x = np.sum(x); sum_x2 = np.sum(x * x)
     denominator = window * sum_x2 - sum_x * sum_x
     if denominator == 0: return out
     for i in range(window - 1, n):
         y_win = y[i - window + 1 : i + 1]
-        sum_y = np.sum(y_win)
-        sum_xy = np.sum(x * y_win)
+        sum_y = np.sum(y_win); sum_xy = np.sum(x * y_win)
         slope = (window * sum_xy - sum_x * sum_y) / denominator
         out[i] = slope
     return out
 
 @numba.jit(nopython=True, fastmath=True)
 def _rolling_rank_pct_numba(y: np.ndarray, window: int) -> np.ndarray:
-    n = len(y)
-    out = np.full(n, np.nan)
+    n = len(y); out = np.full(n, np.nan)
     for i in range(window - 1, n):
-        win = y[i - window + 1 : i + 1]
-        last_val = win[-1]
+        win = y[i - window + 1 : i + 1]; last_val = win[-1]
         count_le = 0
         for val in win:
-            if val <= last_val:
-                count_le += 1
+            if val <= last_val: count_le += 1
         out[i] = count_le / window
     return out
 
@@ -261,19 +214,15 @@ def apply_rolling_numba(series: pd.Series, func, window: int) -> pd.Series:
     return pd.Series(result, index=series.index, name=series.name)
 
 def generate_bar_features(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Calculates secondary bar-based features (e.g., RSI, Hurst) on the 25ms grid.
-    """
+    """Calculates secondary bar-based features (e.g., RSI, Hurst) on the 25ms grid."""
     if df.empty:
         log.warning("Input to 'generate_bar_features' is empty. Skipping calculations.")
         return df.copy()
     
-    log.info(f"Generating secondary/legacy bar features (RSI, Hurst) for dataframe of shape {df.shape}...")
+    log.info(f"Generating secondary/legacy bar features for dataframe of shape {df.shape}...")
     df = df.copy()
-    
     df['returns'] = df['close'].pct_change()
     df['log_returns'] = np.log(df['close'] / df['close'].shift(1))
-    
     df['rsi_14'] = ta.momentum.RSIIndicator(close=df['close'], window=14).rsi()
     df['rsi_28'] = ta.momentum.RSIIndicator(close=df['close'], window=28).rsi()
 
@@ -285,19 +234,16 @@ def generate_bar_features(df: pd.DataFrame) -> pd.DataFrame:
     
     window_hurst = 100
     if len(df) > window_hurst:
-        log.info(f"  -> Calculating Hurst Exponent (Window: {window_hurst} periods)")
         df['hurst_100'] = df['close'].rolling(window_hurst).apply(hurst, raw=True)
     else:
-        log.warning(f"  -> Skipping Hurst calculation, DataFrame size ({len(df)}) is too small.")
+        log.warning(f"Skipping Hurst calculation, DataFrame size ({len(df)}) is too small.")
         
     df['hour'] = df['datetime'].dt.hour
     df['minute'] = df['datetime'].dt.minute
     df['day_of_week'] = df['datetime'].dt.dayofweek
     df['hour_sin'] = np.sin(2 * np.pi * df['hour'] / 24)
     df['hour_cos'] = np.cos(2 * np.pi * df['hour'] / 24)
-
     df.replace([np.inf, -np.inf], np.nan, inplace=True)
     df.dropna(inplace=True)
-    
     log.info(f"Secondary feature generation complete. Final shape: {df.shape}")
     return df
