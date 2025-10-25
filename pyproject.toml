@@ -19,29 +19,25 @@ source = ["src", "*/site-packages"]
 source = ["binance_pipeline"]
 
 # --- FINAL, COMPATIBILITY-FOCUSED [project] SECTION for Managed Environments ---
+
 [project]
 name = "binance-kedro-pipeline"
 version = "0.18.14"
 dependencies = [
-    # Core Kedro (stable pre-1.0 to avoid major refactors)
     "kedro~=0.18.14",
-    
-    # Pinned versions to satisfy the environment's requirements
-    "pandas==2.2.2",               # Required by google-colab and cudf
-    "numpy~=1.26.4",               # Required by tensorflow (<2.2.0)
-    "numba~=0.59.1",               # Required by cudf and dask-cuda (<0.62.0)
-    "polars~=1.28.0",              # Required by cudf-polars (<1.29)
-    "pydantic<2.12,>=2.0",         # Required by gradio (<2.12)
-    
-    # Other libraries, ensuring compatibility with the above pins
+    "pandas==2.2.2",
+    "numpy==1.26.4",
     "pyarrow",
-    "scipy~=1.13.0",               # A version compatible with NumPy 1.26
-    "scikit-learn~=1.4.0",         # A version compatible with NumPy 1.26
+    "polars>=0.50.0", # <-- CORRECTED to a modern version available in Oct 2025
+    "scipy>=1.10.0",
+    "numba>=0.57.0",
+    "scikit-learn>=1.3.0",
     "lightgbm>=4.0.0",
-    "river>=0.21.0",
+    "river>=0.20.0",
     "ta>=0.11.0",
     "requests",
     "tqdm",
-    "pandera~=0.19.0",             # Pandera 0.19 is compatible with pandas 2.2
-    "optuna>=3.5.0",               # Optuna is generally flexible
+    "pandera==0.19.0",
+    "pydantic>=2.0.0",
+    "optuna>=3.5.0", 
 ]
