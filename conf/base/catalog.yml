@@ -7,13 +7,13 @@ book_raw:
     skiprows: 1 
     dtype:
       # --- MEMORY OPTIMIZATIONS ---
-      update_id: uint32          # Use smaller integer type for IDs
-      best_bid_price: float64      # Keep price at high precision
-      best_bid_qty: float32        # float32 is sufficient for quantities
-      best_ask_price: float64      # Keep price at high precision
-      best_ask_qty: float32        # float32 is sufficient for quantities
-      transaction_time: int64      # Keep timestamps at high precision
-      event_time: int64            # Keep timestamps at high precision
+      update_id: uint32
+      best_bid_price: float64
+      best_bid_qty: float32
+      best_ask_price: float64
+      best_ask_qty: float32
+      transaction_time: int64
+      event_time: int64
 
 trade_raw:
   type: kedro_datasets.pandas.CSVDataset
@@ -23,24 +23,22 @@ trade_raw:
     skiprows: 1
     dtype:
       # --- MEMORY OPTIMIZATIONS ---
-      id: uint64                 # Trade IDs can be very large; uint64 is safe
-      price: float64               # Keep price at high precision
-      qty: float32                 # float32 is sufficient for quantities
-      quote_qty: float32           # float32 is sufficient for quantities
-      time: int64                  # Keep timestamps at high precision
+      id: uint64
+      price: float64
+      qty: float32
+      quote_qty: float32
+      time: int64
       is_buyer_maker: bool
 
 # 02_intermediate
-merged_tick_data: {type: kedro_datasets.pandas.ParquetDataset, filepath: "data/02_intermediate/merged_tick_data.parquet"}
-
-# --- DEBUGGING: Change MemoryDataSet to ParquetDataSet to create checkpoints ---
-enriched_tick_data_unvalidated: {type: kedro_datasets.pandas.ParquetDataset, filepath: "data/02_intermediate/enriched_tick_data_unvalidated.parquet"}
-enriched_tick_data: {type: kedro_datasets.pandas.ParquetDataset, filepath: "data/02_intermediate/enriched_tick_data.parquet"}
-ewma_features_tbt: {type: kedro_datasets.pandas.ParquetDataset, filepath: "data/02_intermediate/ewma_features_tbt.parquet"}
-# Add entries for the other intermediate datasets in the pipeline
-sampled_grid_data: {type: kedro_datasets.pandas.ParquetDataset, filepath: "data/02_intermediate/sampled_grid_data.parquet"}
-grid_with_secondary_features: {type: kedro_datasets.pandas.ParquetDataset, filepath: "data/02_intermediate/grid_with_secondary_features.parquet"}
+# --- REFACTORED: Removed trade_grid_15ms and book_grid_15ms ---
+# The new Polars node directly creates merged_grid_15ms.
+merged_grid_15ms: {type: kedro_datasets.pandas.ParquetDataset, filepath: "data/02_intermediate/merged_grid_15ms.parquet"}
+primary_features_grid: {type: kedro_datasets.pandas.ParquetDataset, filepath: "data/02_intermediate/primary_features_grid.parquet"}
+ewma_features_grid: {type: kedro_datasets.pandas.ParquetDataset, filepath: "data/02_intermediate/ewma_features_grid.parquet"}
+grid_with_bar_features: {type: kedro_datasets.pandas.ParquetDataset, filepath: "data/02_intermediate/grid_with_bar_features.parquet"}
 grid_with_microstructure_features: {type: kedro_datasets.pandas.ParquetDataset, filepath: "data/02_intermediate/grid_with_microstructure_features.parquet"}
+
 
 # 03_primary
 features_data_unvalidated: {type: kedro_datasets.pandas.ParquetDataset, filepath: "data/03_primary/features_data_unvalidated.parquet"}
