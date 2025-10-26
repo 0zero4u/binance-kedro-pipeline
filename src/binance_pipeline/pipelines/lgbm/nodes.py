@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 import logging
-from sklearn.metrics import f1_score, cohen_kappa_score
+from sklearn.metrics import f1_score, cohen_kappa_score, classification_report
 import lightgbm as lgb
 from typing import Tuple, Dict, Any
 import optuna
@@ -10,6 +10,7 @@ from binance_pipeline.features import AdvancedFeatureEngine
 log = logging.getLogger(__name__)
 
 class PurgedKFold:
+    # ... (rest of the existing code in this file is unchanged) ...
     """Purged K-Fold for time-series to prevent lookahead bias."""
     def __init__(self, n_splits: int = 5, embargo_pct: float = 0.01):
         self.n_splits = n_splits
@@ -114,4 +115,31 @@ def train_lgbm_model(labeled_data: pd.DataFrame, lgbm_params: Dict, training_par
     eval_results = {'cv_scores': cv_scores, 'feature_importance': feature_importance_df.to_dict(), 'best_params': best_params}
     
     return final_model, eval_results
-            
+
+# --- NEW FUNCTION: Evaluate on the holdout test set ---
+def evaluate_model(model: lgb.LGBMClassifier, test_labeled_data: pd.DataFrame) -> Dict:
+    """
+    Evaluates the final trained model on the unseen holdout test set to get a
+    true measure of its generalization performance.
+    """
+    log.info(f"Evaluating final model on holdout test set of shape {test_labeled_data.shape}...")
+    
+    # Ensure the test set has the features the model was trained on
+    X_test = test_labeled_data[model.feature_name_]
+    y_test = test_labeled_data['label']
+    
+    y_pred = model.predict(X_test)
+    
+    f1 = f1_score(y_test, y_pred, average='macro')
+    kappa = cohen_kappa_score(y_test, y_pred)
+    report = classification_report(y_test, y_pred, output_dict=True)
+    
+    log.info("\n" + "="*50)
+    log.info("--- HOLDOUT TEST SET PERFORMANCE ---")
+    log.info(f"F1-Macro: {f1:.4f}")
+    log.info(f"Cohen's Kappa: {kappa:.4f}")
+    log.info("Classification Report:")
+    log.info(classification_report(y_test, y_pred))
+    log.info("="*50 + "\n")
+    
+    return {"test_f1_macro": f1, "test_cohen_kappa": kappa, "test_classification_report": report}
