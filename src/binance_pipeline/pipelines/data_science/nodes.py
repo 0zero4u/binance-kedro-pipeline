@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 import logging
 import numba
+from typing import Tuple
 
 log = logging.getLogger(__name__)
 
@@ -18,7 +19,7 @@ def _compute_fee_aware_barriers_vectorized(
     fee_pct: float
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
-    Numba-optimized triple barrier with fee-aware net P&L calculation.
+    UPGRADED: Numba-optimized triple barrier with SYMMETRIC fee-aware P&L calculation.
     Returns: (labels, barrier_hit_times, gross_returns, net_returns)
     """
     n = len(prices)
@@ -39,11 +40,16 @@ def _compute_fee_aware_barriers_vectorized(
             gross_return = (exit_price - entry_price) / entry_price
             net_return = gross_return - (2 * fee_pct)
 
+            # --- FIX 2: SYMMETRIC LOGIC ---
+            # A profit is only valid if the NET return is positive.
             if exit_price >= upper_barrier and first_upper_idx == -1:
-                if net_return > 0:  # Only label as profit if NET return is positive
+                if net_return > 0:
                     first_upper_idx = j
+            # A loss is only valid if the NET return is negative.
             if exit_price <= lower_barrier and first_lower_idx == -1:
-                first_lower_idx = j
+                if net_return < 0:
+                    first_lower_idx = j
+            
             if first_upper_idx != -1 and first_lower_idx != -1:
                 break
 
@@ -75,7 +81,6 @@ def generate_triple_barrier_labels(df: pd.DataFrame, params: dict) -> pd.DataFra
         profit_net_target = params['profit_take_net_pct']
         loss_net_target = params['stop_loss_net_pct']
         
-        # Calculate the required GROSS movement to achieve the desired NET return
         profit_gross_required = profit_net_target + (2 * fee_pct)
         loss_gross_required = loss_net_target + (2 * fee_pct)
         
@@ -110,4 +115,26 @@ def generate_triple_barrier_labels(df: pd.DataFrame, params: dict) -> pd.DataFra
             log.warning("WARNING: Average NET profit is <= 0! Barriers may be too tight.")
     
     return df_out
+
+# --- FIX 4: NEW NODE FOR CREATING A HOLDOUT TEST SET ---
+def split_data(data: pd.DataFrame, test_size: float = 0.2) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Splits time-series data into training and testing sets without shuffling.
     
+    Args:
+        data: The input DataFrame, assumed to be sorted by time.
+        test_size: The proportion of the dataset to reserve for the test set.
+        
+    Returns:
+        A tuple containing the training DataFrame and the testing DataFrame.
+    """
+    log.info(f"Splitting data into training and holdout test sets (test_size={test_size})...")
+    
+    split_index = int(len(data) * (1 - test_size))
+    train_data = data.iloc[:split_index]
+    test_data = data.iloc[split_index:]
+    
+    log.info(f"Train data shape: {train_data.shape}")
+    log.info(f"Test data shape: {test_data.shape}")
+    
+    return train_data, test_data
