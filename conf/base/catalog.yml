@@ -1,4 +1,3 @@
-
 # 01_raw
 book_raw:
   type: kedro_datasets.pandas.CSVDataset
@@ -94,6 +93,11 @@ scaled_data_arf: {type: kedro_datasets.pandas.ParquetDataset, filepath: data/05_
 robust_scaler: {type: kedro_datasets.pickle.PickleDataset, filepath: data/06_models/robust_scaler.pkl}
 arf_training_results: {type: kedro_datasets.pickle.PickleDataset, filepath: data/06_models/arf_training_results.pkl}
 arf_model: {type: kedro_datasets.pickle.PickleDataset, filepath: data/06_models/arf_price_movement_model.pkl, layer: models}
+
+# --- FIX: Add missing catalog entry for the HPO configurations ---
+arf_hpo_configs:
+  type: kedro_datasets.json.JSONDataset
+  filepath: "data/06_models/arf_hpo_configs.json"
 
 # Intermediate datasets for preparing the ARF holdout test set
 test_features_arf:
