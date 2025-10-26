@@ -176,7 +176,6 @@ def calculate_ewma_features_on_grid(df: pd.DataFrame) -> pd.DataFrame:
     log.info(f"EWMA grid feature calculation complete. Total features: {len(df_out.columns)}")
     return df_out
 
-# ...(Rest of nodes.py remains the same)...
 @numba.jit(nopython=True, fastmath=True)
 def _rolling_slope_numba(y: np.ndarray, window: int) -> np.ndarray:
     n = len(y)
@@ -253,7 +252,11 @@ def generate_bar_features(df: pd.DataFrame) -> pd.DataFrame:
     df['hour_cos'] = np.cos(2 * np.pi * df['hour'] / 24)
 
     df.replace([np.inf, -np.inf], np.nan, inplace=True)
-    df.dropna(inplace=True)
+    
+    # --- FIX: Removed the premature and overly aggressive dropna() call ---
+    # This was causing the logical guardrail to fail by cleaning the data too early.
+    # The final validation node is responsible for handling the warm-up period.
+    # df.dropna(inplace=True)
     
     log.info(f"Secondary feature generation complete. Final shape: {df.shape}")
     return df
