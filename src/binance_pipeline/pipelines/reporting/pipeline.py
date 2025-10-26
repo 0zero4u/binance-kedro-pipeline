@@ -6,12 +6,11 @@ def create_pipeline(**kwargs) -> Pipeline:
         node(
             func=create_unified_traceability_report,
             inputs=[
-                "merged_tick_data",
-                "ewma_features_tbt",
+                "merged_grid_15ms",
+                "ewma_features_grid",
                 "features_data",
             ],
             outputs="unified_5min_traceability_report",
             name="create_traceability_report_node",
         )
     ])
-  
