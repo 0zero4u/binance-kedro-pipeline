@@ -1,4 +1,3 @@
-
 import pandas as pd
 import numpy as np
 import ta
@@ -10,7 +9,7 @@ from pathlib import Path
 from typing import Dict
 import numba
 from tqdm import tqdm
-import polars as pl # <-- Import Polars
+import polars as pl
 
 log = logging.getLogger(__name__)
 
@@ -95,7 +94,11 @@ def create_and_merge_grids_with_polars(trade_raw: pd.DataFrame, book_raw: pd.Dat
     min_time = min(trades_pl_eager["datetime"].min(), book_pl_eager["datetime"].min())
     max_time = max(trades_pl_eager["datetime"].max(), book_pl_eager["datetime"].max())
     
-    full_grid = pl.DataFrame({"datetime": pl.datetime_range(min_time, max_time, rule, eager=True)})
+    # --- FIX IS HERE ---
+    # Explicitly set the time_unit to 'ms' to match the other DataFrames.
+    full_grid = pl.DataFrame({
+        "datetime": pl.datetime_range(min_time, max_time, rule, time_unit="ms", eager=True)
+    })
 
     merged = full_grid.join(trades_pl_eager, on="datetime", how="left")
     merged = merged.join(book_pl_eager, on="datetime", how="left")
@@ -110,7 +113,7 @@ def create_and_merge_grids_with_polars(trade_raw: pd.DataFrame, book_raw: pd.Dat
 
 
 def calculate_primary_grid_features(df: pd.DataFrame) -> pd.DataFrame:
-    """Calculates primary features on the clean, merged grid. (Unchanged)"""
+    """Calculates primary features on the clean, merged grid."""
     log.info(f"Calculating primary grid features for shape {df.shape}...")
     df_out = df.copy()
     df_out['mid_price'] = (df_out['best_bid_price'] + df_out['best_ask_price']) / 2
@@ -130,7 +133,7 @@ def calculate_primary_grid_features(df: pd.DataFrame) -> pd.DataFrame:
     return df_out
 
 def calculate_ewma_features_on_grid(df: pd.DataFrame) -> pd.DataFrame:
-    """Calculates EWMA features on the clean time grid. (Unchanged)"""
+    """Calculates EWMA features on the clean time grid."""
     log.info(f"Calculating EWMA features on grid for shape {df.shape}...")
     df_out = df.set_index('datetime').copy()
     ewma_spans = ['5s', '15s', '1m', '3m', '15m']
@@ -147,7 +150,7 @@ def calculate_ewma_features_on_grid(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # =============================================================================
-# Helper Functions and Bar Features Node 
+# Helper Functions and Bar Features Node (Unchanged)
 # =============================================================================
 @numba.jit(nopython=True, fastmath=True)
 def _rolling_slope_numba(y: np.ndarray, window: int) -> np.ndarray:
@@ -186,7 +189,7 @@ def apply_rolling_numba(series: pd.Series, func, window: int) -> pd.Series:
     return pd.Series(result, index=series.index, name=series.name)
 
 def generate_bar_features(df: pd.DataFrame) -> pd.DataFrame:
-    """Calculates secondary bar-based features (e.g., RSI, Hurst) on the grid. (Unchanged)"""
+    """Calculates secondary bar-based features (e.g., RSI, Hurst) on the grid."""
     if df.empty:
         log.warning("Input to 'generate_bar_features' is empty. Skipping calculations.")
         return df.copy()
