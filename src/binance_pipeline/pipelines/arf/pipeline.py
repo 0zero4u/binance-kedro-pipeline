@@ -22,33 +22,35 @@ def create_pipeline(**kwargs) -> Pipeline:
             outputs=["train_features", "test_features"],
             name="split_arf_train_test_data_node",
         ),
-        # 2. Generate ARF-specific features on the training data
+        
+        # --- TRAINING PATH ---
+        # 2. Generate ARF-specific features on the TRAINING data
         node(
             func=generate_arf_features,
             inputs=["train_features", "params:arf.feature_params"],
             outputs="features_data_arf",
-            name="generate_arf_features_node",
+            name="generate_arf_features_for_training_node",
         ),
-        # 3. Label the ARF training data
+        # 3. Label the ARF TRAINING data
         node(
             func=generate_triple_barrier_labels,
             inputs=["features_data_arf", "params:labeling_params"],
             outputs="labeled_data_arf",
             name="generate_arf_labels_for_training_node",
         ),
-        # 4. Fit the scaler ONLY on the training data
+        # 4. Fit the scaler ONLY on the TRAINING data
         node(
             func=fit_robust_scaler,
             inputs="labeled_data_arf",
             outputs="robust_scaler",
             name="fit_robust_scaler_node",
         ),
-        # 5. Apply scaling to the training data
+        # 5. Apply scaling to the TRAINING data
         node(
             func=apply_robust_scaling,
             inputs=["labeled_data_arf", "robust_scaler"],
             outputs="scaled_data_arf",
-            name="apply_robust_scaling_node",
+            name="apply_scaling_to_training_data_node",
         ),
         # 6. Generate HPO configs for the ensemble
         node(
@@ -57,12 +59,12 @@ def create_pipeline(**kwargs) -> Pipeline:
             outputs="arf_hpo_configs",
             name="generate_arf_hpo_configs_node"
         ),
-        # 7. Train the ARF model ONLY on the scaled training data
+        # 7. Train the ARF model ONLY on the scaled TRAINING data
         node(
             func=train_arf_ensemble,
             inputs=["scaled_data_arf", "arf_hpo_configs"],
             outputs="arf_training_results",
-            name="train_arf_ensemble_with_hpo_node",
+            name="train_arf_ensemble_node",
         ),
         # 8. Select the best performing model from the ensemble
         node(
@@ -71,17 +73,33 @@ def create_pipeline(**kwargs) -> Pipeline:
             outputs="arf_model",
             name="select_best_arf_model_node",
         ),
-        # 9. Label the holdout test data (using the same parameters)
+        
+        # --- EVALUATION PATH ---
+        # 9. Generate ARF features on the TEST data
+        node(
+            func=generate_arf_features,
+            inputs=["test_features", "params:arf.feature_params"],
+            outputs="test_features_arf",
+            name="generate_arf_features_for_testing_node",
+        ),
+        # 10. Label the ARF TEST data
         node(
             func=generate_triple_barrier_labels,
-            inputs=["test_features", "params:labeling_params"],
-            outputs="test_labeled_data",
+            inputs=["test_features_arf", "params:labeling_params"],
+            outputs="test_labeled_data_arf",
             name="generate_arf_labels_for_testing_node",
         ),
-        # 10. Evaluate the final model on the unseen, labeled test data
+        # 11. Apply the FITTED scaler to the TEST data
+        node(
+            func=apply_robust_scaling,
+            inputs=["test_labeled_data_arf", "robust_scaler"],
+            outputs="test_scaled_data_arf",
+            name="apply_scaling_to_testing_data_node",
+        ),
+        # 12. Evaluate the final model on the unseen, scaled TEST data
         node(
             func=evaluate_arf_model,
-            inputs=["arf_model", "robust_scaler", "test_labeled_data"],
+            inputs=["arf_model", "test_scaled_data_arf"],
             outputs="arf_holdout_test_results",
             name="evaluate_arf_on_holdout_node",
         ),
