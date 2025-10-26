@@ -35,7 +35,8 @@ class AdvancedFeatureEngine:
 
     def _calculate_vpin(self, df: pd.DataFrame, window: int = 50) -> pd.Series:
         """Volume-Synchronized Probability of Informed Trading."""
-        df['price_change'] = df['price'].diff()
+        # --- FIX: Changed 'price' to 'close' ---
+        df['price_change'] = df['close'].diff()
         df['buy_volume'] = np.where(df['price_change'] > 0, df['qty'], 0)
         df['sell_volume'] = np.where(df['price_change'] < 0, df['qty'], 0)
         df['volume_imbalance'] = abs(df['buy_volume'] - df['sell_volume'])
@@ -49,13 +50,21 @@ class AdvancedFeatureEngine:
         df_out = df.copy()
         
         # 1. Kyle's Lambda (price impact)
-        df_out['kyle_lambda_50'] = self._kyle_lambda_numba(df_out['price'].values, df_out['qty'].values, 50)
+        # --- FIX: Changed 'price' to 'close' ---
+        # Note: The 'qty' column from the original trade data is now aggregated as 'volume' in the grid.
+        # For microstructure features like VPIN and Kyle's lambda, using the total bar volume ('volume')
+        # is a standard and correct adaptation from tick-level to bar-level data.
+        df_out['kyle_lambda_50'] = self._kyle_lambda_numba(df_out['close'].values, df_out['volume'].values, 50)
         
         # 2. VPIN
-        df_out['vpin_50'] = self._calculate_vpin(df_out, window=50)
+        # We need a 'qty' column for _calculate_vpin. Since we are on a grid, 'volume' is the equivalent.
+        # We'll temporarily rename it for the function call.
+        temp_df_for_vpin = df_out.rename(columns={'volume': 'qty'})
+        df_out['vpin_50'] = self._calculate_vpin(temp_df_for_vpin, window=50)
 
         # 3. Amihud illiquidity measure
-        df_out['amihud_illiq'] = abs(df_out['returns']) / (df_out['qty'] * df_out['price'] + 1e-10)
+        # --- FIX: Use 'volume' instead of 'qty' and 'close' instead of 'price' ---
+        df_out['amihud_illiq'] = abs(df_out['returns']) / (df_out['volume'] * df_out['close'] + 1e-10)
         df_out['amihud_illiq_ewma_50'] = df_out['amihud_illiq'].ewm(span=50).mean()
         
         log.info(f"Microstructure features complete. Final shape: {df_out.shape}")
@@ -85,3 +94,4 @@ class AdvancedFeatureEngine:
                 
         log.info(f"Selected features count: {len(selected)}. Top 10: {[f[0] for f in sorted_features[:10]]}")
         return selected
+        
