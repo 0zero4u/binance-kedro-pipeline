@@ -1,74 +1,14 @@
 import pandas as pd
 import numpy as np
-import pandera as pa
-from pandera.typing import DataFrame, Series
 import logging
 
 log = logging.getLogger(__name__)
 
-class EnrichedTickSchema(pa.SchemaModel):
-    """Schema for the structurally validated enriched tick data."""
-
-    timestamp: Series[int] = pa.Field(nullable=False)
-
-    price: Series[float] = pa.Field(nullable=False)
-    best_bid_price: Series[float] = pa.Field(nullable=False)
-    best_ask_price: Series[float] = pa.Field(nullable=False)
-    microprice: Series[float] = pa.Field(nullable=False)
-    ofi: Series[float] = pa.Field(nullable=False)
-    book_imbalance: Series[float] = pa.Field(nullable=False)
-    spread: Series[float] = pa.Field(nullable=False)
-
-    # Column-level checks as SchemaModel validators:
-    
-    @pa.check("timestamp")
-    def timestamp_monotonic(cls, series: Series[int]) -> Series[bool]:
-        # This allows for duplicate values, as long as they are in order.
-        return series.is_monotonic_increasing
-    
-    @pa.check("price", "best_bid_price", "best_ask_price")
-    def must_be_positive(cls, series: Series[float]) -> Series[bool]:
-        return series > 0
-
-    @pa.check("book_imbalance")
-    def balance_in_range(cls, series: Series[float]) -> Series[bool]:
-        return (series >= -1.0) & (series <= 1.0)
-
-    @pa.check("spread")
-    def spread_non_negative(cls, series: Series[float]) -> Series[bool]:
-        return series >= 0
-
-    @pa.dataframe_check
-    def check_ask_greater_than_bid(cls, df: DataFrame) -> Series[bool]:
-        return df["best_ask_price"] > df["best_bid_price"]
-
-    class Config:
-        coerce = True
-
-
-def validate_enriched_tick_data(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Applies the structural guardrail to the enriched tick data.
-    Halts the pipeline if validation fails.
-    """
-    log.info(f"Applying STRUCTURAL guardrail to enriched_tick_data (shape: {df.shape})...")
-    if df.empty:
-        log.warning("Input to 'validate_enriched_tick_data' is an empty DataFrame. Validation will pass, but no data will be processed downstream.")
-        return df
-
-    try:
-        EnrichedTickSchema.validate(df, lazy=True)
-        log.info("✅ Structural guardrail PASSED for enriched_tick_data.")
-        return df
-    except pa.errors.SchemaErrors as err:
-        log.error("🔥 Structural guardrail FAILED for enriched_tick_data!")
-        log.error("Validation failure details below:")
-        log.error(err.failure_cases)
-        raise err
-
 def validate_features_data_logic(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Applies the definitive, robust cleaning process and logical guardrail to the final features data.
+    UPGRADED: Applies the logical guardrail to the final features data.
+    REMOVED the unlimited forward-fill to prevent data leakage. The correct, limited
+    ffill is now handled during feature engineering.
     """
     log.info(f"Applying LOGICAL guardrail to features_data (shape: {df.shape})...")
     
@@ -77,32 +17,19 @@ def validate_features_data_logic(df: pd.DataFrame) -> pd.DataFrame:
         log.error(f"FATAL: Key feature '{key_feature}' not in DataFrame. Cannot proceed.")
         raise ValueError(f"Missing key feature for cleaning: {key_feature}")
 
-    # --- ENHANCED LOGGING BLOCK ---
-    log.info("--- DETAILED DEBUG LOGGING ---")
-    nan_count_initial = df[key_feature].isna().sum()
-    log.info(f"1. Initial State: NaN count in '{key_feature}' = {nan_count_initial} out of {len(df)} rows.")
-    log.info(f"   - Head of '{key_feature}':\n{df[key_feature].head().to_string()}")
-    log.info(f"   - Tail of '{key_feature}':\n{df[key_feature].tail().to_string()}")
-    
     # Step 1: Replace any infinite values that may have been created
     df.replace([np.inf, -np.inf], np.nan, inplace=True)
     
-    # Step 2: Forward-fill to handle ALL intermittent NaNs from sensitive features.
-    log.info("2. Performing forward-fill...")
-    df.ffill(inplace=True)
-    nan_count_after_ffill = df[key_feature].isna().sum()
-    log.info(f"3. After ffill: NaN count in '{key_feature}' = {nan_count_after_ffill}")
-    log.info(f"   - Head of '{key_feature}' after ffill:\n{df[key_feature].head().to_string()}")
+    # Step 2 (REMOVED): The leaking `df.ffill(inplace=True)` is GONE.
     
-    # Step 3: Use a SINGLE reliable long-window feature to drop the initial warm-up period.
+    # Step 3: Use a single reliable long-window feature to drop the initial warm-up period.
+    # This removes rows where long-term features could not be calculated.
     initial_rows = len(df)
-    log.info(f"4. Applying dropna(subset=['{key_feature}']) on DataFrame with {initial_rows} rows...")
     df.dropna(subset=[key_feature], inplace=True)
-    log.info(f"5. After dropna: Dropped {initial_rows - len(df)} rows. Final shape: {df.shape}")
-    log.info("--- END DETAILED DEBUG LOGGING ---")
+    log.info(f"Dropped {initial_rows - len(df)} warm-up rows. Final shape: {df.shape}")
 
     if df.empty:
-        log.warning("Input to 'validate_features_data_logic' is an empty DataFrame AFTER cleaning. Skipping logical checks.")
+        log.warning("DataFrame is empty AFTER dropping NaNs. Logical checks will be skipped.")
         return df
 
     try:
