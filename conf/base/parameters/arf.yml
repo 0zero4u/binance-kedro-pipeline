@@ -13,7 +13,7 @@ feature_params:
     - "ofi_ewma_1m"
     - "spread_bps_ewma_5s"
     - "rsi_14"
-    - "hurst_100"
+    - "adx_100"  # <--- CORRECTED: Replaced hurst_100 with adx_100
     - "book_imbalance"
     - "microprice_momentum"
     - "vpin_50"
@@ -39,4 +39,3 @@ hpo_params:
       type: "int"
       low: 10
       high: 25
-      
