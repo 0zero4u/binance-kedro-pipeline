@@ -40,7 +40,6 @@ def download_and_unzip(url: str, output_dir: str):
 # =============================================================================
 # NEW "GRID-FIRST" PIPELINE NODES (POLARS-POWERED)
 # =============================================================================
-
 def create_and_merge_grids_with_polars(trade_raw: pd.DataFrame, book_raw: pd.DataFrame, rule: str) -> pd.DataFrame:
     """
     SUPERIOR METHODOLOGY: Creates, merges, and handles ghost grids for both
@@ -132,16 +131,10 @@ def calculate_ewma_features_on_grid(df: pd.DataFrame) -> pd.DataFrame:
     to prevent internal pandas TypeErrors.
     """
     log.info(f"Calculating EWMA features on grid for shape {df.shape}...")
-    df_out = df.copy() # No need to set datetime index
+    df_out = df.copy()
     
-    # --- FIX IS HERE: Convert all time spans to integer row counts ---
-    # Grid frequency = 15ms
     ewma_spans_rows = {
-        '5s': 333,    # 5s / 0.015s
-        '15s': 1000,   # 15s / 0.015s
-        '1m': 4000,    # 60s / 0.015s
-        '3m': 12000,   # 180s / 0.015s
-        '15m': 60000,  # 900s / 0.015s
+        '5s': 333, '15s': 1000, '1m': 4000, '3m': 12000, '15m': 60000,
     }
     wall_clock_windows_rows = {'60s': 4000}
 
@@ -163,7 +156,7 @@ def calculate_ewma_features_on_grid(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # =============================================================================
-# Helper Functions and Bar Features Node (Unchanged)
+# Helper Functions and Bar Features Node
 # =============================================================================
 @numba.jit(nopython=True, fastmath=True)
 def _rolling_slope_numba(y: np.ndarray, window: int) -> np.ndarray:
@@ -201,34 +194,46 @@ def apply_rolling_numba(series: pd.Series, func, window: int) -> pd.Series:
     result = func(values, window)
     return pd.Series(result, index=series.index, name=series.name)
 
+
 def generate_bar_features(df: pd.DataFrame) -> pd.DataFrame:
-    """Calculates secondary bar-based features (e.g., RSI, Hurst) on the grid."""
+    """
+    Calculates secondary bar-based features.
+    OPTIMIZED: Replaced the slow Hurst Exponent calculation with the fast, 
+    vectorized Average Directional Index (ADX) as a proxy for trend strength.
+    """
     if df.empty:
         log.warning("Input to 'generate_bar_features' is empty. Skipping calculations.")
         return df.copy()
-    log.info(f"Generating secondary/legacy bar features (RSI, Hurst) for dataframe of shape {df.shape}...")
+    
+    log.info(f"Generating secondary/legacy bar features (RSI, ADX) for shape {df.shape}...")
     df = df.copy()
+    
     df['returns'] = df['close'].pct_change()
     df['log_returns'] = np.log(df['close'] / df['close'].shift(1))
+    
+    # --- Standard TA-Lib features (fast and vectorized) ---
     df['rsi_14'] = ta.momentum.RSIIndicator(close=df['close'], window=14).rsi()
     df['rsi_28'] = ta.momentum.RSIIndicator(close=df['close'], window=28).rsi()
-    def hurst(ts):
-        lags = range(2, 100)
-        tau = [np.sqrt(np.std(np.subtract(ts[lag:], ts[:-lag]))) for lag in lags]
-        poly = np.polyfit(np.log(lags), np.log(tau), 1)
-        return poly[0] * 2.0
-    window_hurst = 100
-    if len(df) > window_hurst:
-        log.info(f"  -> Calculating Hurst Exponent (Window: {window_hurst} periods)")
-        df['hurst_100'] = df['close'].rolling(window_hurst).apply(hurst, raw=True)
-    else:
-        log.warning(f"  -> Skipping Hurst calculation, DataFrame size ({len(df)}) is too small.")
+
+    # --- OPTIMIZATION: Replace Hurst with ADX ---
+    log.info("  -> Calculating ADX (fast proxy for Hurst) with window 100...")
+    adx_indicator = ta.trend.ADXIndicator(
+        high=df['high'], 
+        low=df['low'], 
+        close=df['close'], 
+        window=100
+    )
+    df['adx_100'] = adx_indicator.adx()
+        
+    # --- Time-based features ---
     df['hour'] = df['datetime'].dt.hour
     df['minute'] = df['datetime'].dt.minute
     df['day_of_week'] = df['datetime'].dt.dayofweek
     df['hour_sin'] = np.sin(2 * np.pi * df['hour'] / 24)
     df['hour_cos'] = np.cos(2 * np.pi * df['hour'] / 24)
+
     df.replace([np.inf, -np.inf], np.nan, inplace=True)
     df.dropna(inplace=True)
+    
     log.info(f"Secondary feature generation complete. Final shape: {df.shape}")
     return df
