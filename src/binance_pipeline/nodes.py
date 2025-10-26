@@ -82,11 +82,9 @@ def create_and_merge_grids_with_polars(trade_raw: pd.DataFrame, book_raw: pd.Dat
         ])
     )
     
-    # Eagerly compute the individual grids and their time ranges
     trades_pl_eager = trades_pl.collect()
     book_pl_eager = book_pl.collect()
 
-    # --- 3. Merge and Handle Ghost Grids ---
     if trades_pl_eager.is_empty() or book_pl_eager.is_empty():
         log.warning("One of the input dataframes is empty, returning an empty grid.")
         return pd.DataFrame()
@@ -94,8 +92,6 @@ def create_and_merge_grids_with_polars(trade_raw: pd.DataFrame, book_raw: pd.Dat
     min_time = min(trades_pl_eager["datetime"].min(), book_pl_eager["datetime"].min())
     max_time = max(trades_pl_eager["datetime"].max(), book_pl_eager["datetime"].max())
     
-    # --- FIX IS HERE ---
-    # Explicitly set the time_unit to 'ms' to match the other DataFrames.
     full_grid = pl.DataFrame({
         "datetime": pl.datetime_range(min_time, max_time, rule, time_unit="ms", eager=True)
     })
@@ -133,18 +129,34 @@ def calculate_primary_grid_features(df: pd.DataFrame) -> pd.DataFrame:
     return df_out
 
 def calculate_ewma_features_on_grid(df: pd.DataFrame) -> pd.DataFrame:
-    """Calculates EWMA features on the clean time grid."""
+    """
+    Calculates EWMA and rolling features on the clean time grid.
+    FIXED: Uses an explicit integer window for .rolling() to prevent TypeErrors.
+    """
     log.info(f"Calculating EWMA features on grid for shape {df.shape}...")
     df_out = df.set_index('datetime').copy()
+    
     ewma_spans = ['5s', '15s', '1m', '3m', '15m']
-    wall_clock_windows = ['60s']
-    features_to_smooth = ['mid_price', 'spread', 'spread_bps', 'microprice', 'taker_flow', 'ofi', 'book_imbalance', 'close', 'volume']
+    features_to_smooth = [
+        'mid_price', 'spread', 'spread_bps', 'microprice', 'taker_flow', 
+        'ofi', 'book_imbalance', 'close', 'volume'
+    ]
+    
+    # .ewm() with a time-based span is robust and works correctly.
     for feature in features_to_smooth:
         for span in ewma_spans:
             df_out[f'{feature}_ewma_{span}'] = df_out[feature].ewm(span=pd.to_timedelta(span)).mean()
+            
+    # --- FIX IS HERE ---
+    # For .rolling(), we convert time windows to an integer number of rows
+    # to avoid internal TypeErrors between Timedelta and int.
+    # Grid frequency = 15ms. 60s / 0.015s = 4000 rows.
+    wall_clock_windows_rows = {'60s': 4000}
+    
     for feature in ['taker_flow', 'ofi']:
-        for window in wall_clock_windows:
-            df_out[f'{feature}_rollsum_{window}'] = df_out[feature].rolling(window).sum()
+        for name, window_rows in wall_clock_windows_rows.items():
+            df_out[f'{feature}_rollsum_{name}'] = df_out[feature].rolling(window=window_rows).sum()
+            
     log.info(f"EWMA grid feature calculation complete. Total features: {len(df_out.columns)}")
     return df_out.reset_index()
 
