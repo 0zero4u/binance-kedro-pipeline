@@ -38,14 +38,14 @@ def download_and_unzip(url: str, output_dir: str):
     log.info(f"Download and unzip complete for {file_name}.")
 
 # =============================================================================
-# NEW "GRID-FIRST" PIPELINE NODES (POLARS-POWERED)
+# UPGRADED "GRID-FIRST" PIPELINE NODES (POLARS-POWERED)
 # =============================================================================
 def create_and_merge_grids_with_polars(trade_raw: pd.DataFrame, book_raw: pd.DataFrame, rule: str) -> pd.DataFrame:
     """
-    SUPERIOR METHODOLOGY: Creates, merges, and handles ghost grids for both
-    trade and book data in a single, hyper-optimized Polars function.
+    UPGRADED METHODOLOGY: Creates and merges grids efficiently without pre-generating a
+    massive full grid, preventing memory exhaustion.
     """
-    log.info(f"Starting hyper-optimized grid creation with Polars (freq: {rule})...")
+    log.info(f"Starting memory-efficient grid creation with Polars (freq: {rule})...")
     
     trades_pl = (
         pl.from_pandas(trade_raw)
@@ -78,6 +78,7 @@ def create_and_merge_grids_with_polars(trade_raw: pd.DataFrame, book_raw: pd.Dat
         ])
     )
     
+    # Eagerly collect after aggregations
     trades_pl_eager = trades_pl.collect()
     book_pl_eager = book_pl.collect()
 
@@ -85,15 +86,9 @@ def create_and_merge_grids_with_polars(trade_raw: pd.DataFrame, book_raw: pd.Dat
         log.warning("One of the input dataframes is empty, returning an empty grid.")
         return pd.DataFrame()
 
-    min_time = min(trades_pl_eager["datetime"].min(), book_pl_eager["datetime"].min())
-    max_time = max(trades_pl_eager["datetime"].max(), book_pl_eager["datetime"].max())
-    
-    full_grid = pl.DataFrame({
-        "datetime": pl.datetime_range(min_time, max_time, rule, time_unit="ms", eager=True)
-    })
-
-    merged = full_grid.join(trades_pl_eager, on="datetime", how="left")
-    merged = merged.join(book_pl_eager, on="datetime", how="left")
+    # FIX: Perform an outer join on the aggregated grids instead of creating a full range.
+    # This is far more memory-efficient as it only considers timestamps present in the data.
+    merged = trades_pl_eager.join(book_pl_eager, on="datetime", how="outer_coalesce")
     
     final_grid = merged.with_columns([
         pl.col(["volume", "taker_flow"]).fill_null(0),
@@ -126,17 +121,33 @@ def calculate_primary_grid_features(df: pd.DataFrame) -> pd.DataFrame:
 
 def calculate_ewma_features_on_grid(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Calculates EWMA and rolling features on the clean time grid.
-    DEFINITIVE FIX: Uses explicit integer row counts for all windowing functions
-    to prevent internal pandas TypeErrors.
+    UPGRADED: Calculates EWMA and rolling features on the time grid by dynamically
+    detecting the data's median frequency. This is robust to data gaps and
+    variations in grid resolution. Also includes limited forward-fill to prevent data leakage.
     """
-    log.info(f"Calculating EWMA features on grid for shape {df.shape}...")
+    log.info(f"Calculating ADAPTIVE EWMA features on grid for shape {df.shape}...")
     df_out = df.copy()
+
+    # --- FIX 1: DYNAMIC SPAN CALCULATION ---
+    # Detect the actual median grid frequency in milliseconds
+    time_diffs_ms = df['datetime'].diff().dt.total_seconds().mul(1000)
+    median_freq_ms = time_diffs_ms.median()
+    log.info(f"Detected median grid frequency: {median_freq_ms:.2f}ms")
     
+    if pd.isna(median_freq_ms) or median_freq_ms <= 0:
+        log.warning("Could not detect valid frequency. Falling back to 15ms assumption.")
+        median_freq_ms = 15.0
+        
+    rows_per_second = 1000 / median_freq_ms
+
+    # Calculate row-based spans and windows dynamically based on detected frequency
     ewma_spans_rows = {
-        '5s': 333, '15s': 1000, '1m': 4000, '3m': 12000, '15m': 60000,
+        '5s': int(5 * rows_per_second), '15s': int(15 * rows_per_second), 
+        '1m': int(60 * rows_per_second), '3m': int(180 * rows_per_second), 
+        '15m': int(900 * rows_per_second),
     }
-    wall_clock_windows_rows = {'60s': 4000}
+    wall_clock_windows_rows = {'60s': int(60 * rows_per_second)}
+    log.info(f"Calculated adaptive row spans for EWMA: {ewma_spans_rows}")
 
     features_to_smooth = [
         'mid_price', 'spread', 'spread_bps', 'microprice', 'taker_flow', 
@@ -145,19 +156,27 @@ def calculate_ewma_features_on_grid(df: pd.DataFrame) -> pd.DataFrame:
     
     for feature in features_to_smooth:
         for name, span_rows in ewma_spans_rows.items():
-            df_out[f'{feature}_ewma_{name}'] = df_out[feature].ewm(span=span_rows).mean()
+            if span_rows > 1:
+                df_out[f'{feature}_ewma_{name}'] = df_out[feature].ewm(span=span_rows).mean()
             
     for feature in ['taker_flow', 'ofi']:
         for name, window_rows in wall_clock_windows_rows.items():
-            df_out[f'{feature}_rollsum_{name}'] = df_out[feature].rolling(window=window_rows).sum()
+            if window_rows > 1:
+                df_out[f'{feature}_rollsum_{name}'] = df_out[feature].rolling(window=window_rows).sum()
+
+    # --- FIX 3: NON-LEAKING FORWARD FILL ---
+    # Apply a limited forward-fill here during feature creation, NOT in validation.
+    # This fills small, intermittent gaps without looking far into the future.
+    # A limit of 10 rows at a ~15ms grid is a 150ms lookahead, which is acceptable.
+    max_fill_limit = 10
+    log.info(f"Applying limited forward-fill (limit={max_fill_limit}) to prevent data leakage...")
+    for col in df_out.select_dtypes(include=np.number).columns:
+        df_out[col] = df_out[col].ffill(limit=max_fill_limit)
             
     log.info(f"EWMA grid feature calculation complete. Total features: {len(df_out.columns)}")
     return df_out
 
-
-# =============================================================================
-# Helper Functions and Bar Features Node
-# =============================================================================
+# ...(Rest of nodes.py remains the same)...
 @numba.jit(nopython=True, fastmath=True)
 def _rolling_slope_numba(y: np.ndarray, window: int) -> np.ndarray:
     n = len(y)
@@ -226,6 +245,7 @@ def generate_bar_features(df: pd.DataFrame) -> pd.DataFrame:
     df['adx_100'] = adx_indicator.adx()
         
     # --- Time-based features ---
+    df['datetime'] = pd.to_datetime(df['datetime']) # Ensure datetime type
     df['hour'] = df['datetime'].dt.hour
     df['minute'] = df['datetime'].dt.minute
     df['day_of_week'] = df['datetime'].dt.dayofweek
