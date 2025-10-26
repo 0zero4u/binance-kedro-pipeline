@@ -12,7 +12,7 @@ handlers:
   # New handler for beautiful, live console logging
   rich_console:
     class: kedro.logging.RichHandler
-    level: DEBUG # <-- CHANGED FROM INFO TO DEBUG
+    level: INFO
     formatter: rich
     rich_tracebacks: true
     show_path: false
