@@ -74,7 +74,10 @@ def fit_robust_scaler(df: pd.DataFrame) -> RobustScaler:
 def apply_robust_scaling(df: pd.DataFrame, scaler: RobustScaler) -> pd.DataFrame:
     """Applies a pre-fit RobustScaler and soft clipping."""
     log.info("Applying RobustScaler and soft clipping...")
-    non_feature_cols = df[['datetime', 'label']]
+    # Preserve necessary columns that are not features
+    non_feature_cols = [col for col in df.columns if col not in scaler.feature_names_in_]
+    non_feature_df = df[non_feature_cols]
+    
     feature_cols = [col for col in df.columns if col in scaler.feature_names_in_]
     X = df[feature_cols]
     
@@ -83,7 +86,7 @@ def apply_robust_scaling(df: pd.DataFrame, scaler: RobustScaler) -> pd.DataFrame
     
     X_clipped_df = 3.0 * np.tanh(X_scaled_df / 3.0)
     
-    return pd.concat([non_feature_cols, X_clipped_df], axis=1)
+    return pd.concat([non_feature_df, X_clipped_df], axis=1)
 
 def train_arf_ensemble(df: pd.DataFrame, hpo_configs: Dict[str, Any]) -> Dict[str, Any]:
     """Trains an ensemble of ARF models using Optuna-generated configurations."""
@@ -119,45 +122,35 @@ def select_best_arf_model(results: Dict[str, Any]):
     """Extracts the best model from the training results dictionary."""
     return results['best_model']
 
-# --- NEW FUNCTION: Evaluate the final ARF model on the holdout test set ---
 def evaluate_arf_model(
     model: forest.ARFClassifier,
-    scaler: RobustScaler,
-    test_labeled_data: pd.DataFrame
+    test_scaled_data: pd.DataFrame
 ) -> Dict:
     """
-    Evaluates the final trained ARF model on the unseen holdout test set.
+    Evaluates the final trained ARF model on the unseen, scaled holdout test set.
     """
-    log.info(f"Evaluating final ARF model on holdout test set of shape {test_labeled_data.shape}...")
+    log.info(f"Evaluating final ARF model on holdout test set of shape {test_scaled_data.shape}...")
 
-    # Prepare test data: scale features and soft clip
-    non_feature_cols = test_labeled_data[['datetime', 'label']]
-    feature_cols = [col for col in test_labeled_data.columns if col in scaler.feature_names_in_]
-    X_test = test_labeled_data[feature_cols]
-    y_test = test_labeled_data['label']
+    features = [col for col in test_scaled_data.columns if col not in ['datetime', 'label']]
+    X_test = test_scaled_data[features]
+    y_test = test_scaled_data['label']
     
-    X_scaled = scaler.transform(X_test)
-    X_scaled_df = pd.DataFrame(X_scaled, index=X_test.index, columns=X_test.columns)
-    X_clipped_df = 3.0 * np.tanh(X_scaled_df / 3.0)
-    
-    # Get predictions one by one, as ARF is a streaming model
     y_pred = []
-    for i in tqdm(range(len(X_clipped_df)), desc="Evaluating ARF on Holdout Set"):
-        x_i = X_clipped_df.iloc[i].to_dict()
+    for i in tqdm(range(len(X_test)), desc="Evaluating ARF on Holdout Set"):
+        x_i = X_test.iloc[i].to_dict()
         pred = model.predict_one(x_i)
-        y_pred.append(pred if pred is not None else 1) # Default to 'neutral' if no prediction
+        y_pred.append(pred if pred is not None else 1)
 
-    # Calculate and log performance metrics
-    f1 = f1_score(y_test, y_pred, average='macro')
+    f1 = f1_score(y_test, y_pred, average='macro', zero_division=0)
     kappa = cohen_kappa_score(y_test, y_pred)
-    report = classification_report(y_test, y_pred, output_dict=True)
+    report = classification_report(y_test, y_pred, output_dict=True, zero_division=0)
 
     log.info("\n" + "="*50)
     log.info("--- ARF HOLDOUT TEST SET PERFORMANCE ---")
     log.info(f"F1-Macro: {f1:.4f}")
     log.info(f"Cohen's Kappa: {kappa:.4f}")
     log.info("Classification Report:")
-    log.info(classification_report(y_test, y_pred))
+    log.info(classification_report(y_test, y_pred, zero_division=0))
     log.info("="*50 + "\n")
 
     return {"test_f1_macro": f1, "test_cohen_kappa": kappa, "test_classification_report": report}
