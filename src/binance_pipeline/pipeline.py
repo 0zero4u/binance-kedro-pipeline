@@ -1,7 +1,7 @@
 from kedro.pipeline import Pipeline, node
 from functools import partial
 from .nodes import (
-    create_and_merge_grids_with_polars, # <-- IMPORT THE NEW POLARS NODE
+    create_and_merge_grids_with_polars,
     calculate_primary_grid_features,
     calculate_ewma_features_on_grid,
     generate_bar_features,
