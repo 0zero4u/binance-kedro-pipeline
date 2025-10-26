@@ -147,7 +147,7 @@ def calculate_ewma_features_on_grid(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # =============================================================================
-# Helper Functions and Bar Features Node (Unchanged)
+# Helper Functions and Bar Features Node 
 # =============================================================================
 @numba.jit(nopython=True, fastmath=True)
 def _rolling_slope_numba(y: np.ndarray, window: int) -> np.ndarray:
