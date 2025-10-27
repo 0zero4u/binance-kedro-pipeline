@@ -42,8 +42,8 @@ def download_and_unzip(url: str, output_dir: str):
 # =============================================================================
 def create_and_merge_grids_with_polars(trade_raw: pd.DataFrame, book_raw: pd.DataFrame, rule: str) -> pd.DataFrame:
     """
-    UPGRADED METHODOLOGY: Creates and merges grids efficiently without pre-generating a
-    massive full grid, preventing memory exhaustion.
+    UPGRADED METHODOLOGY: Creates and merges grids efficiently and ensures the
+    output is chronologically sorted.
     """
     log.info(f"Starting memory-efficient grid creation with Polars (freq: {rule})...")
     
@@ -78,7 +78,6 @@ def create_and_merge_grids_with_polars(trade_raw: pd.DataFrame, book_raw: pd.Dat
         ])
     )
     
-    # Eagerly collect after aggregations
     trades_pl_eager = trades_pl.collect()
     book_pl_eager = book_pl.collect()
 
@@ -86,14 +85,18 @@ def create_and_merge_grids_with_polars(trade_raw: pd.DataFrame, book_raw: pd.Dat
         log.warning("One of the input dataframes is empty, returning an empty grid.")
         return pd.DataFrame()
 
-    # FIX: Perform an outer join on the aggregated grids instead of creating a full range.
-    # This is far more memory-efficient as it only considers timestamps present in the data.
     merged = trades_pl_eager.join(book_pl_eager, on="datetime", how="outer_coalesce")
     
-    final_grid = merged.with_columns([
-        pl.col(["volume", "taker_flow"]).fill_null(0),
-        pl.col(["open", "high", "low", "close", "best_bid_price", "best_ask_price", "best_bid_qty", "best_ask_qty"]).forward_fill()
-    ]).drop_nulls()
+    # --- CRITICAL FIX: Sort the data chronologically after the join ---
+    # This ensures the integrity of all subsequent time-series feature calculations.
+    final_grid = (
+        merged.sort("datetime")
+        .with_columns([
+            pl.col(["volume", "taker_flow"]).fill_null(0),
+            pl.col(["open", "high", "low", "close", "best_bid_price", "best_ask_price", "best_bid_qty", "best_ask_qty"]).forward_fill()
+        ])
+        .drop_nulls()
+    )
 
     log.info(f"Polars grid creation complete. Shape: {final_grid.shape}")
     return final_grid.to_pandas()
@@ -128,8 +131,6 @@ def calculate_ewma_features_on_grid(df: pd.DataFrame) -> pd.DataFrame:
     log.info(f"Calculating ADAPTIVE EWMA features on grid for shape {df.shape}...")
     df_out = df.copy()
 
-    # --- FIX 1: DYNAMIC SPAN CALCULATION ---
-    # Detect the actual median grid frequency in milliseconds
     time_diffs_ms = df['datetime'].diff().dt.total_seconds().mul(1000)
     median_freq_ms = time_diffs_ms.median()
     log.info(f"Detected median grid frequency: {median_freq_ms:.2f}ms")
@@ -140,7 +141,6 @@ def calculate_ewma_features_on_grid(df: pd.DataFrame) -> pd.DataFrame:
         
     rows_per_second = 1000 / median_freq_ms
 
-    # Calculate row-based spans and windows dynamically based on detected frequency
     ewma_spans_rows = {
         '5s': int(5 * rows_per_second), '15s': int(15 * rows_per_second), 
         '1m': int(60 * rows_per_second), '3m': int(180 * rows_per_second), 
@@ -164,10 +164,6 @@ def calculate_ewma_features_on_grid(df: pd.DataFrame) -> pd.DataFrame:
             if window_rows > 1:
                 df_out[f'{feature}_rollsum_{name}'] = df_out[feature].rolling(window=window_rows).sum()
 
-    # --- FIX 3: NON-LEAKING FORWARD FILL ---
-    # Apply a limited forward-fill here during feature creation, NOT in validation.
-    # This fills small, intermittent gaps without looking far into the future.
-    # A limit of 10 rows at a ~15ms grid is a 150ms lookahead, which is acceptable.
     max_fill_limit = 10
     log.info(f"Applying limited forward-fill (limit={max_fill_limit}) to prevent data leakage...")
     for col in df_out.select_dtypes(include=np.number).columns:
@@ -216,8 +212,7 @@ def apply_rolling_numba(series: pd.Series, func, window: int) -> pd.Series:
 def generate_bar_features(df: pd.DataFrame) -> pd.DataFrame:
     """
     Calculates secondary bar-based features.
-    OPTIMIZED: Replaced the slow Hurst Exponent calculation with the fast, 
-    vectorized Average Directional Index (ADX) as a proxy for trend strength.
+    UPGRADED: Now includes robust pre-cleaning and logical correction for TA-Lib features.
     """
     if df.empty:
         log.warning("Input to 'generate_bar_features' is empty. Skipping calculations.")
@@ -225,11 +220,18 @@ def generate_bar_features(df: pd.DataFrame) -> pd.DataFrame:
     
     log.info(f"Generating secondary/legacy bar features (RSI, ADX) for shape {df.shape}...")
     df = df.copy()
-    
+
+    # --- FIX 1: Pre-emptive cleaning and type enforcement ---
+    # Ensure input columns are numeric and clean before passing to TA-Lib to prevent silent failures.
+    df.replace([np.inf, -np.inf], np.nan, inplace=True)
+    required_cols = ['high', 'low', 'close']
+    for col in required_cols:
+        df[col] = pd.to_numeric(df[col], errors='coerce')
+
     df['returns'] = df['close'].pct_change()
     df['log_returns'] = np.log(df['close'] / df['close'].shift(1))
     
-    # --- Standard TA-Lib features (fast and vectorized) ---
+    # --- Standard TA-Lib features (now safer to call) ---
     df['rsi_14'] = ta.momentum.RSIIndicator(close=df['close'], window=14).rsi()
     df['rsi_28'] = ta.momentum.RSIIndicator(close=df['close'], window=28).rsi()
 
@@ -242,6 +244,10 @@ def generate_bar_features(df: pd.DataFrame) -> pd.DataFrame:
         window=100
     )
     df['adx_100'] = adx_indicator.adx()
+    
+    # --- FIX 2: Make ADX more robust by treating 0 as NaN (undefined trend) ---
+    # This prevents the model from learning from misleading "zero trend" signals.
+    df['adx_100'].replace(0, np.nan, inplace=True)
         
     # --- Time-based features ---
     df['datetime'] = pd.to_datetime(df['datetime']) # Ensure datetime type
@@ -251,12 +257,8 @@ def generate_bar_features(df: pd.DataFrame) -> pd.DataFrame:
     df['hour_sin'] = np.sin(2 * np.pi * df['hour'] / 24)
     df['hour_cos'] = np.cos(2 * np.pi * df['hour'] / 24)
 
+    # Final cleaning (now largely redundant but safe)
     df.replace([np.inf, -np.inf], np.nan, inplace=True)
-    
-    # --- FIX: Removed the premature and overly aggressive dropna() call ---
-    # This was causing the logical guardrail to fail by cleaning the data too early.
-    # The final validation node is responsible for handling the warm-up period.
-    # df.dropna(inplace=True)
     
     log.info(f"Secondary feature generation complete. Final shape: {df.shape}")
     return df
