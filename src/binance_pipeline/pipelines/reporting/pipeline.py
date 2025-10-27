@@ -7,6 +7,7 @@ def create_pipeline(**kwargs) -> Pipeline:
             func=create_unified_traceability_report,
             inputs=[
                 "merged_grid_15ms",
+                "primary_features_grid", # <-- ADDED
                 "ewma_features_grid",
                 "features_data",
             ],
