@@ -13,10 +13,9 @@ feature_params:
     - "ofi_ewma_1m"
     - "spread_bps_ewma_5s"
     - "rsi_14"
-    - "adx_100"  # <--- CORRECTED: Replaced hurst_100 with adx_100
+    - "adx_100"
     - "book_imbalance"
     - "microprice_momentum"
-    - "vpin_50"
     - "kyle_lambda_50"
 
 # --- UPDATED: Replaced training_params with hpo_params ---
