@@ -40,36 +40,21 @@ class AdvancedFeatureEngine:
                     out[i] = num / den
         return out
 
-    def _calculate_vpin_from_flow(self, df: pd.DataFrame, window: int = 50) -> pd.Series:
-        """
-        Volume-Synchronized Probability of Informed Trading, calculated from true taker flow.
-        This is more robust than inferring buy/sell volume from price changes.
-        """
-        # Volume imbalance is simply the absolute value of the net taker flow within the bar.
-        volume_imbalance = abs(df['taker_flow'])
-        
-        # Total volume is the sum of all trade quantities in the bar.
-        total_volume = df['volume']
-        
-        vpin = volume_imbalance.rolling(window).sum() / (total_volume.rolling(window).sum() + 1e-10)
-        return vpin.fillna(method='ffill')
-
     def calculate_microstructure_features(self, df: pd.DataFrame) -> pd.DataFrame:
         """Calculates advanced market microstructure features using high-fidelity taker flow."""
         log.info(f"Calculating market microstructure features for shape {df.shape}...")
         df_out = df.copy()
         
         # 1. Kyle's Lambda (price impact)
-        # --- FIX: Use the new function that leverages the true 'taker_flow' ---
         df_out['kyle_lambda_50'] = self._kyle_lambda_from_flow_numba(
             df_out['close'].values, df_out['taker_flow'].values, 50
         )
         
-        # 2. VPIN
-        # --- FIX: Use the new function that leverages the true 'taker_flow' ---
-        df_out['vpin_50'] = self._calculate_vpin_from_flow(df_out, window=50)
-
-        # 3. Amihud illiquidity measure (this feature is independent of taker flow and remains the same)
+        # 2. VPIN (REMOVED)
+        # --- FIX: Removed the flawed VPIN calculation as it provides no variance. ---
+        # The signal is better captured by taker_flow_rollsum (CVD).
+        
+        # 3. Amihud illiquidity measure
         df_out['amihud_illiq'] = abs(df_out['returns']) / (df_out['volume'] * df_out['close'] + 1e-10)
         df_out['amihud_illiq_ewma_50'] = df_out['amihud_illiq'].ewm(span=50).mean()
         
@@ -100,4 +85,3 @@ class AdvancedFeatureEngine:
                 
         log.info(f"Selected features count: {len(selected)}. Top 10: {[f[0] for f in sorted_features[:10]]}")
         return selected
-            
