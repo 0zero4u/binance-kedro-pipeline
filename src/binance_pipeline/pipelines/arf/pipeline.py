@@ -1,6 +1,7 @@
+
 from kedro.pipeline import Pipeline, node, pipeline
 from .nodes import (
-    generate_arf_features,
+    # generate_arf_features, <-- REMOVED
     generate_arf_hpo_configs,
     fit_robust_scaler,
     apply_robust_scaling,
@@ -24,17 +25,12 @@ def create_pipeline(**kwargs) -> Pipeline:
         ),
         
         # --- TRAINING PATH ---
-        # 2. Generate ARF-specific features on the TRAINING data
-        node(
-            func=generate_arf_features,
-            inputs=["train_features", "params:arf.feature_params"],
-            outputs="features_data_arf",
-            name="generate_arf_features_for_training_node",
-        ),
-        # 3. Label the ARF TRAINING data
+        # 2. REMOVED: The ARF-specific feature generation node is gone.
+        
+        # 3. Label the TRAINING data directly
         node(
             func=generate_triple_barrier_labels,
-            inputs=["features_data_arf", "params:labeling_params"],
+            inputs=["train_features", "params:labeling_params"], # <-- FIX: Input changed
             outputs="labeled_data_arf",
             name="generate_arf_labels_for_training_node",
         ),
@@ -75,17 +71,12 @@ def create_pipeline(**kwargs) -> Pipeline:
         ),
         
         # --- EVALUATION PATH ---
-        # 9. Generate ARF features on the TEST data
-        node(
-            func=generate_arf_features,
-            inputs=["test_features", "params:arf.feature_params"],
-            outputs="test_features_arf",
-            name="generate_arf_features_for_testing_node",
-        ),
-        # 10. Label the ARF TEST data
+        # 9. REMOVED: The ARF-specific feature generation node for test data is gone.
+        
+        # 10. Label the ARF TEST data directly
         node(
             func=generate_triple_barrier_labels,
-            inputs=["test_features_arf", "params:labeling_params"],
+            inputs=["test_features", "params:labeling_params"], # <-- FIX: Input changed
             outputs="test_labeled_data_arf",
             name="generate_arf_labels_for_testing_node",
         ),
