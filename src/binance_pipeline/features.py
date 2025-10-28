@@ -16,9 +16,7 @@ class AdvancedFeatureEngine:
     @numba.jit(nopython=True, fastmath=True)
     def _kyle_lambda_from_flow_numba(prices: np.ndarray, taker_flows: np.ndarray, window: int) -> np.ndarray:
         """
-        Calculates Kyle's lambda using true taker flow.
-        This version regresses price returns directly on signed taker flow, which is
-        more accurate than inferring trade direction from price ticks.
+        Calculates Kyle's lambda by regressing price returns on signed taker flow.
         """
         n = len(prices)
         out = np.full(n, np.nan)
@@ -49,10 +47,6 @@ class AdvancedFeatureEngine:
         df_out['kyle_lambda_50'] = self._kyle_lambda_from_flow_numba(
             df_out['close'].values, df_out['taker_flow'].values, 50
         )
-        
-        # 2. VPIN (REMOVED)
-        # --- FIX: Removed the flawed VPIN calculation as it provides no variance. ---
-        # The signal is better captured by taker_flow_rollsum (CVD).
         
         # 3. Amihud illiquidity measure
         df_out['amihud_illiq'] = abs(df_out['returns']) / (df_out['volume'] * df_out['close'] + 1e-10)
