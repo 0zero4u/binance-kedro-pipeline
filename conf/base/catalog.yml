@@ -1,6 +1,6 @@
 # 01_raw
 book_raw:
-  type: pandas.CSVDataset  # <-- FIX
+  type: pandas.CSVDataset
   filepath: "data/01_raw/book_ticker.csv"
   load_args:
     names: ["update_id", "best_bid_price", "best_bid_qty", "best_ask_price", "best_ask_qty", "transaction_time", "event_time"]
@@ -15,7 +15,7 @@ book_raw:
       event_time: int64
 
 trade_raw:
-  type: pandas.CSVDataset  # <-- FIX
+  type: pandas.CSVDataset
   filepath: "data/01_raw/trades.csv"
   load_args:
     names: ["id", "price", "qty", "quote_qty", "time", "is_buyer_maker"]
@@ -42,77 +42,71 @@ features_data: {type: pandas.ParquetDataset, filepath: "data/03_primary/features
 
 # Datasets for holding split data
 train_features:
-  type: pandas.ParquetDataset  # <-- FIX
+  type: pandas.ParquetDataset
   filepath: "data/03_primary/train_features.parquet"
   layer: primary
 
 test_features:
-  type: pandas.ParquetDataset  # <-- FIX
+  type: pandas.ParquetDataset
   filepath: "data/03_primary/test_features.parquet"
   layer: primary
 
 
 # 05_model_input
 labeled_data:
-  type: pandas.ParquetDataset  # <-- FIX
+  type: pandas.ParquetDataset
   filepath: "data/05_model_input/labeled_data.parquet"
   layer: model_input
 
 test_labeled_data:
-  type: pandas.ParquetDataset  # <-- FIX
+  type: pandas.ParquetDataset
   filepath: "data/05_model_input/test_labeled_data.parquet"
   layer: model_input
 
 
 # 06_models
 lgbm_model:
-  type: pickle.PickleDataset  # <-- FIX
+  type: pickle.PickleDataset
   filepath: "data/06_models/lgbm_price_movement_model.pkl"
   layer: models
 
 # 07_reporting
 lgbm_eval_results:
-  type: json.JSONDataset  # <-- FIX
+  type: json.JSONDataset
   filepath: "data/07_reporting/lgbm_evaluation.json"
 
 lgbm_holdout_test_results:
-  type: json.JSONDataset  # <-- FIX
+  type: json.JSONDataset
   filepath: "data/07_reporting/lgbm_holdout_test_evaluation.json"
 
 unified_5min_traceability_report:
-  type: pandas.CSVDataset  # <-- FIX
+  type: pandas.CSVDataset
   filepath: "data/07_reporting/unified_5min_traceability_report.csv"
   layer: reporting
 
 # ----------------------------------------------------------------
 # Datasets for the ARF Pipeline
 # ----------------------------------------------------------------
-features_data_arf: {type: pandas.ParquetDataset, filepath: data/03_primary/features_data_arf.parquet}
 labeled_data_arf: {type: pandas.ParquetDataset, filepath: data/05_model_input/labeled_data_arf.parquet}
 scaled_data_arf: {type: pandas.ParquetDataset, filepath: data/05_model_input/scaled_data_arf.parquet}
 robust_scaler: {type: pickle.PickleDataset, filepath: data/06_models/robust_scaler.pkl}
 arf_training_results: {type: pickle.PickleDataset, filepath: data/06_models/arf_training_results.pkl}
 arf_model: {type: pickle.PickleDataset, filepath: data/06_models/arf_price_movement_model.pkl, layer: models}
 
-# --- FIX: Add missing catalog entry for the HPO configurations ---
 arf_hpo_configs:
-  type: json.JSONDataset  # <-- FIX
+  type: json.JSONDataset
   filepath: "data/06_models/arf_hpo_configs.json"
 
 # Intermediate datasets for preparing the ARF holdout test set
-test_features_arf:
-  type: pandas.ParquetDataset  # <-- FIX
-  filepath: "data/03_primary/test_features_arf.parquet"
-
 test_labeled_data_arf:
-  type: pandas.ParquetDataset  # <-- FIX
+  type: pandas.ParquetDataset
   filepath: "data/05_model_input/test_labeled_data_arf.parquet"
   
 test_scaled_data_arf:
-  type: pandas.ParquetDataset  # <-- FIX
+  type: pandas.ParquetDataset
   filepath: "data/05_model_input/test_scaled_data_arf.parquet"
 
 # Final ARF holdout test evaluation results
 arf_holdout_test_results:
-  type: json.JSONDataset  # <-- FIX
+  type: json.JSONDataset
   filepath: "data/07_reporting/arf_holdout_test_evaluation.json"
