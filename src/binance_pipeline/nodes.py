@@ -13,7 +13,6 @@ import polars as pl
 
 log = logging.getLogger(__name__)
 
-# --- Download Node (Unchanged) ---
 def download_and_unzip(url: str, output_dir: str):
     """Downloads and extracts data from URL with a live progress bar."""
     p_output_dir = Path(output_dir)
@@ -38,12 +37,12 @@ def download_and_unzip(url: str, output_dir: str):
     log.info(f"Download and unzip complete for {file_name}.")
 
 # =============================================================================
-# UPGRADED "GRID-FIRST" PIPELINE NODES (POLARS-POWERED)
+# Data Engineering Pipeline Nodes (Polars-Powered)
 # =============================================================================
 def create_and_merge_grids_with_polars(trade_raw: pd.DataFrame, book_raw: pd.DataFrame, rule: str) -> pd.DataFrame:
     """
-    UPGRADED METHODOLOGY: Creates and merges grids efficiently and ensures the
-    output is chronologically sorted.
+    Creates time-based grids from raw trade and book data using Polars for
+    efficiency, then merges them into a single chronologically sorted DataFrame.
     """
     log.info(f"Starting memory-efficient grid creation with Polars (freq: {rule})...")
     
@@ -87,8 +86,7 @@ def create_and_merge_grids_with_polars(trade_raw: pd.DataFrame, book_raw: pd.Dat
 
     merged = trades_pl_eager.join(book_pl_eager, on="datetime", how="outer_coalesce")
     
-    # --- CRITICAL FIX: Sort the data chronologically after the join ---
-    # This ensures the integrity of all subsequent time-series feature calculations.
+    # Sort chronologically to ensure time-series integrity for subsequent calculations.
     final_grid = (
         merged.sort("datetime")
         .with_columns([
@@ -124,9 +122,10 @@ def calculate_primary_grid_features(df: pd.DataFrame) -> pd.DataFrame:
 
 def calculate_ewma_features_on_grid(df: pd.DataFrame) -> pd.DataFrame:
     """
-    UPGRADED: Calculates EWMA and rolling features on the time grid by dynamically
-    detecting the data's median frequency. This is robust to data gaps and
-    variations in grid resolution. Also includes limited forward-fill to prevent data leakage.
+    Calculates EWMA and rolling features with adaptive window sizes based on the
+    data's median frequency. This approach is robust to data gaps and variations
+    in grid resolution. Includes a limited forward-fill to handle minor gaps
+    without leaking future information.
     """
     log.info(f"Calculating ADAPTIVE EWMA features on grid for shape {df.shape}...")
     df_out = df.copy()
@@ -211,8 +210,8 @@ def apply_rolling_numba(series: pd.Series, func, window: int) -> pd.Series:
 
 def generate_bar_features(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Calculates secondary bar-based features.
-    UPGRADED: Now includes robust pre-cleaning and logical correction for TA-Lib features.
+    Calculates secondary bar-based features like RSI and ADX, including
+    pre-cleaning of input data for robustness.
     """
     if df.empty:
         log.warning("Input to 'generate_bar_features' is empty. Skipping calculations.")
@@ -221,8 +220,7 @@ def generate_bar_features(df: pd.DataFrame) -> pd.DataFrame:
     log.info(f"Generating secondary/legacy bar features (RSI, ADX) for shape {df.shape}...")
     df = df.copy()
 
-    # --- FIX 1: Pre-emptive cleaning and type enforcement ---
-    # Ensure input columns are numeric and clean before passing to TA-Lib to prevent silent failures.
+    # Pre-emptively clean and enforce numeric types for TA-Lib compatibility.
     df.replace([np.inf, -np.inf], np.nan, inplace=True)
     required_cols = ['high', 'low', 'close']
     for col in required_cols:
@@ -231,11 +229,10 @@ def generate_bar_features(df: pd.DataFrame) -> pd.DataFrame:
     df['returns'] = df['close'].pct_change()
     df['log_returns'] = np.log(df['close'] / df['close'].shift(1))
     
-    # --- Standard TA-Lib features (now safer to call) ---
     df['rsi_14'] = ta.momentum.RSIIndicator(close=df['close'], window=14).rsi()
     df['rsi_28'] = ta.momentum.RSIIndicator(close=df['close'], window=28).rsi()
 
-    # --- OPTIMIZATION: Replace Hurst with ADX ---
+    # Use ADX as a fast proxy for trendiness.
     log.info("  -> Calculating ADX (fast proxy for Hurst) with window 100...")
     adx_indicator = ta.trend.ADXIndicator(
         high=df['high'], 
@@ -245,8 +242,7 @@ def generate_bar_features(df: pd.DataFrame) -> pd.DataFrame:
     )
     df['adx_100'] = adx_indicator.adx()
     
-    # --- FIX 2: Make ADX more robust by treating 0 as NaN (undefined trend) ---
-    # This prevents the model from learning from misleading "zero trend" signals.
+    # Treat ADX=0 as NaN, as it indicates an undefined trend.
     df['adx_100'].replace(0, np.nan, inplace=True)
         
     # --- Time-based features ---
