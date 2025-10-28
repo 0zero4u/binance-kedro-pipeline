@@ -1,22 +1,4 @@
-feature_params:
-  percentile_windows: 
-    '5s': 50
-    '10s': 100
-    '30s': 300
-    '1min': 600
-    '3min': 1800
-    '5min': 3000
-  
-  features_to_rank:
-    - "mid_price_momentum"
-    - "taker_flow_rollsum_60s"
-    - "ofi_ewma_1m"
-    - "spread_bps_ewma_5s"
-    - "rsi_14"
-    - "adx_100"
-    - "book_imbalance"
-    - "microprice_momentum"
-    - "kyle_lambda_50"
+# --- REMOVED: The entire feature_params block is no longer necessary ---
 
 # --- UPDATED: Replaced training_params with hpo_params ---
 hpo_params:
