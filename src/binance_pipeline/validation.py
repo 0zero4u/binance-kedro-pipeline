@@ -6,9 +6,9 @@ log = logging.getLogger(__name__)
 
 def validate_features_data_logic(df: pd.DataFrame) -> pd.DataFrame:
     """
-    UPGRADED: Applies the logical guardrail to the final features data.
-    REMOVED the unlimited forward-fill to prevent data leakage. The correct, limited
-    ffill is now handled during feature engineering.
+    Applies logical guardrails to the final features data. This includes dropping
+    the initial warm-up period and asserting a positive correlation between order
+    flow and returns to catch potential data processing bugs.
     """
     log.info(f"Applying LOGICAL guardrail to features_data (shape: {df.shape})...")
     
@@ -19,8 +19,6 @@ def validate_features_data_logic(df: pd.DataFrame) -> pd.DataFrame:
 
     # Step 1: Replace any infinite values that may have been created
     df.replace([np.inf, -np.inf], np.nan, inplace=True)
-    
-    # Step 2 (REMOVED): The leaking `df.ffill(inplace=True)` is GONE.
     
     # Step 3: Use a single reliable long-window feature to drop the initial warm-up period.
     # This removes rows where long-term features could not be calculated.
@@ -33,7 +31,6 @@ def validate_features_data_logic(df: pd.DataFrame) -> pd.DataFrame:
         return df
 
     try:
-        # --- NEW: More detailed logging before the assertion ---
         log.debug("--- Logical Guardrail Diagnostics ---")
         log.debug(f"'returns' stats:\n{df['returns'].describe().to_string()}")
         log.debug(f"'{key_feature}' stats:\n{df[key_feature].describe().to_string()}")
@@ -42,8 +39,7 @@ def validate_features_data_logic(df: pd.DataFrame) -> pd.DataFrame:
         correlation = df[key_feature].corr(df['returns'])
         log.info(f"Correlation(returns, {key_feature}) = {correlation:.4f}")
         
-        # --- FIX: Relaxed the assertion from > 0.001 to > 0 ---
-        # A negative correlation would be a bug. A near-zero correlation is just noisy data.
+        # A negative correlation would indicate a bug; near-zero is acceptable for noisy data.
         assert correlation > 0, f"Logical check failed: Correlation between returns and CVD should be positive but was {correlation:.4f}. This indicates a potential bug in feature logic."
 
         log.info("✅ Logical guardrail PASSED for features_data.")
