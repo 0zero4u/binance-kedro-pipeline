@@ -10,37 +10,7 @@ import optuna
 
 log = logging.getLogger(__name__)
 
-from binance_pipeline.nodes import apply_rolling_numba, _rolling_rank_pct_numba
-from binance_pipeline.pipelines.data_science.nodes import generate_triple_barrier_labels
-
-def generate_arf_features(df: pd.DataFrame, params: Dict[str, Any]) -> pd.DataFrame:
-    """Generates percentile rank features for the ARF model using parameters."""
-    log.info("Generating ARF features with multi-window percentile ranks...")
-    
-    percentile_windows = params.get('percentile_windows', {})
-    features_to_rank = params.get('features_to_rank', [])
-
-    if not percentile_windows or not features_to_rank:
-        log.warning("'percentile_windows' or 'features_to_rank' not found in arf.feature_params. Skipping.")
-        return df.copy()
-
-    log.info(f"Applying percentile rank to {len(features_to_rank)} features.")
-    
-    df_out = df.copy()
-    for feature in features_to_rank:
-        if feature in df_out.columns:
-            for name, window_size in percentile_windows.items():
-                df_out[f'{feature}_pct_rank_{name}'] = apply_rolling_numba(
-                    df_out[feature], _rolling_rank_pct_numba, window_size
-                )
-        else:
-            log.warning(f"Feature '{feature}' not found in dataframe for ARF ranking.")
-
-    df_out.replace([np.inf, -np.inf], np.nan, inplace=True)
-    df_out.dropna(inplace=True)
-    
-    log.info(f"ARF feature generation complete. Final shape: {df_out.shape}")
-    return df_out.reset_index(drop=True)
+# --- REMOVED: The entire generate_arf_features function and its helpers are gone. ---
 
 def generate_arf_hpo_configs(params: Dict[str, Any]) -> Dict[str, Any]:
     """Uses Optuna to generate a dictionary of hyperparameter configurations to test."""
@@ -74,7 +44,6 @@ def fit_robust_scaler(df: pd.DataFrame) -> RobustScaler:
 def apply_robust_scaling(df: pd.DataFrame, scaler: RobustScaler) -> pd.DataFrame:
     """Applies a pre-fit RobustScaler and soft clipping."""
     log.info("Applying RobustScaler and soft clipping...")
-    # Preserve necessary columns that are not features
     non_feature_cols = [col for col in df.columns if col not in scaler.feature_names_in_]
     non_feature_df = df[non_feature_cols]
     
