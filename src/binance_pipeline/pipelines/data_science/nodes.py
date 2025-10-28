@@ -6,10 +6,6 @@ from typing import Tuple
 
 log = logging.getLogger(__name__)
 
-# =========================================================
-# UPGRADED FEE-AWARE TRIPLE BARRIER LABELING
-# =========================================================
-
 @numba.jit(nopython=True, fastmath=True)
 def _compute_fee_aware_barriers_vectorized(
     prices: np.ndarray,
@@ -19,7 +15,8 @@ def _compute_fee_aware_barriers_vectorized(
     fee_pct: float
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
-    UPGRADED: Numba-optimized triple barrier with SYMMETRIC fee-aware P&L calculation.
+    Numba-optimized triple barrier labeling with symmetric, fee-aware profit and
+    loss calculation.
     Returns: (labels, barrier_hit_times, gross_returns, net_returns)
     """
     n = len(prices)
@@ -40,12 +37,10 @@ def _compute_fee_aware_barriers_vectorized(
             gross_return = (exit_price - entry_price) / entry_price
             net_return = gross_return - (2 * fee_pct)
 
-            # --- FIX 2: SYMMETRIC LOGIC ---
-            # A profit is only valid if the NET return is positive.
+            # A trade is only considered profitable/unprofitable if its net return crosses the threshold.
             if exit_price >= upper_barrier and first_upper_idx == -1:
                 if net_return > 0:
                     first_upper_idx = j
-            # A loss is only valid if the NET return is negative.
             if exit_price <= lower_barrier and first_lower_idx == -1:
                 if net_return < 0:
                     first_lower_idx = j
@@ -69,8 +64,9 @@ def _compute_fee_aware_barriers_vectorized(
 
 def generate_triple_barrier_labels(df: pd.DataFrame, params: dict) -> pd.DataFrame:
     """
-    UPGRADED triple-barrier labeling with fee awareness and diagnostics.
-    It calculates barriers required to achieve a target NET profit/loss.
+    Generates triple-barrier labels with fee awareness and diagnostics.
+    It calculates the gross price movements required to achieve a target net
+    profit or loss after accounting for round-trip fees.
     """
     log.info(f"Generating FEE-AWARE triple-barrier labels using '{params.get('method', 'fixed_pct')}' method...")
 
@@ -116,7 +112,6 @@ def generate_triple_barrier_labels(df: pd.DataFrame, params: dict) -> pd.DataFra
     
     return df_out
 
-# --- FIX 4: NEW NODE FOR CREATING A HOLDOUT TEST SET ---
 def split_data(data: pd.DataFrame, test_size: float = 0.2) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
     Splits time-series data into training and testing sets without shuffling.
