@@ -2,9 +2,8 @@ labeling_params:
   # Method for barrier creation: 'fixed_pct' or 'volatility'
   method: "fixed_pct"
   
-  # --- IMPROVED: Fee-Aware Net Return Targeting ---
-  # Define DESIRED net returns after fees. The labeling function will
-  # automatically calculate the required gross return to achieve these targets.
+  # Define desired net returns after fees. The labeling function will automatically
+  # calculate the required gross return to achieve these targets.
   profit_take_net_pct: 0.0008  # Target 0.08% net profit
   stop_loss_net_pct: 0.0003    # Target 0.03% net loss
   
@@ -19,4 +18,3 @@ labeling_params:
   vol_multiplier: 2.5
   profit_take_mult: 2.0
   stop_loss_mult: 1.5
-  
