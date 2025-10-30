@@ -31,14 +31,10 @@ trade_raw:
 # 02_intermediate
 merged_grid_15ms: {type: pandas.ParquetDataset, filepath: "data/02_intermediate/merged_grid_15ms.parquet"}
 primary_features_grid: {type: pandas.ParquetDataset, filepath: "data/02_intermediate/primary_features_grid.parquet"}
-
-# --- MODIFIED: Replaced old ewma_features_grid with new intelligent multi-scale dataset ---
 intelligent_multi_scale_features: {type: pandas.ParquetDataset, filepath: "data/02_intermediate/intelligent_multi_scale_features.parquet"}
-
 grid_with_bar_features: {type: pandas.ParquetDataset, filepath: "data/02_intermediate/grid_with_bar_features.parquet"}
 grid_with_microstructure_features: {type: pandas.ParquetDataset, filepath: "data/02_intermediate/grid_with_microstructure_features.parquet"}
 features_data_pre_selection: {type: pandas.ParquetDataset, filepath: "data/02_intermediate/features_data_pre_selection.parquet"}
-
 
 # 03_primary
 features_data_unvalidated: {type: pandas.ParquetDataset, filepath: "data/03_primary/features_data_unvalidated.parquet"}
@@ -55,7 +51,6 @@ test_features:
   filepath: "data/03_primary/test_features.parquet"
   layer: primary
 
-
 # 05_model_input
 labeled_data:
   type: pandas.ParquetDataset
@@ -66,7 +61,6 @@ test_labeled_data:
   type: pandas.ParquetDataset
   filepath: "data/05_model_input/test_labeled_data.parquet"
   layer: model_input
-
 
 # 06_models
 lgbm_model:
@@ -83,7 +77,6 @@ lgbm_holdout_test_results:
   type: json.JSONDataset
   filepath: "data/07_reporting/lgbm_holdout_test_evaluation.json"
 
-# --- MODIFIED: Reporting pipeline will now use the new intermediate dataset ---
 unified_5min_traceability_report:
   type: pandas.CSVDataset
   filepath: "data/07_reporting/unified_5min_traceability_report.csv"
@@ -97,12 +90,10 @@ scaled_data_arf: {type: pandas.ParquetDataset, filepath: data/05_model_input/sca
 robust_scaler: {type: pickle.PickleDataset, filepath: data/06_models/robust_scaler.pkl}
 arf_training_results: {type: pickle.PickleDataset, filepath: data/06_models/arf_training_results.pkl}
 arf_model: {type: pickle.PickleDataset, filepath: data/06_models/arf_price_movement_model.pkl, layer: models}
-
 arf_hpo_configs:
   type: json.JSONDataset
   filepath: "data/06_models/arf_hpo_configs.json"
 
-# Intermediate datasets for preparing the ARF holdout test set
 test_labeled_data_arf:
   type: pandas.ParquetDataset
   filepath: "data/05_model_input/test_labeled_data_arf.parquet"
@@ -111,7 +102,6 @@ test_scaled_data_arf:
   type: pandas.ParquetDataset
   filepath: "data/05_model_input/test_scaled_data_arf.parquet"
 
-# Final ARF holdout test evaluation results
 arf_holdout_test_results:
   type: json.JSONDataset
   filepath: "data/07_reporting/arf_holdout_test_evaluation.json"
