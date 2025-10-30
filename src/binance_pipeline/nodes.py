@@ -36,9 +36,6 @@ def download_and_unzip(url: str, output_dir: str):
     os.remove(zip_path)
     log.info(f"Download and unzip complete for {file_name}.")
 
-# =============================================================================
-# Data Engineering Pipeline Nodes (Polars-Powered)
-# =============================================================================
 def create_and_merge_grids_with_polars(trade_raw: pd.DataFrame, book_raw: pd.DataFrame, rule: str) -> pd.DataFrame:
     """
     Creates time-based grids from raw trade and book data using Polars for
@@ -86,7 +83,6 @@ def create_and_merge_grids_with_polars(trade_raw: pd.DataFrame, book_raw: pd.Dat
 
     merged = trades_pl_eager.join(book_pl_eager, on="datetime", how="outer_coalesce")
     
-    # Sort chronologically to ensure time-series integrity for subsequent calculations.
     final_grid = (
         merged.sort("datetime")
         .with_columns([
@@ -137,11 +133,10 @@ def calculate_intelligent_multi_scale_features(df: pd.DataFrame) -> pd.DataFrame
         
     rows_per_second = 1000 / median_freq_ms
 
-    # Use logarithmically spaced timeframes to capture different dynamics with less overlap
     timeframe_configs = {
-        'short': int(15 * rows_per_second),   # Approx 15s
-        'medium': int(60 * rows_per_second),  # Approx 1m
-        'long': int(300 * rows_per_second),   # Approx 5m
+        'short': int(15 * rows_per_second),
+        'medium': int(60 * rows_per_second),
+        'long': int(300 * rows_per_second),
     }
     log.info(f"Using intelligent timeframes (rows): {timeframe_configs}")
 
@@ -153,11 +148,9 @@ def calculate_intelligent_multi_scale_features(df: pd.DataFrame) -> pd.DataFrame
                 ewma_col = f'{feature}_ewma_{name}'
                 df_out[ewma_col] = df_out[feature].ewm(span=span_rows).mean()
                 
-                # Add velocity (1st derivative) for dynamic features
                 if name in ['short', 'medium']:
                     df_out[f'{ewma_col}_velo'] = df_out[ewma_col].diff()
     
-    # Rolling sum for flow features on medium timeframe
     for feature in ['taker_flow', 'ofi']:
         window = timeframe_configs['medium']
         if window > 1:
