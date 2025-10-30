@@ -2,7 +2,8 @@
 from the Kedro defaults. For further information, including these default values, see
 https://kedro.readthedocs.io/en/stable/kedro_project_setup/settings.html."""
 
-from kedro.config import OmegaConfLoader
+# --- CORRECT IMPORT FOR KEDRO 0.18.x ---
+from kedro.framework.config import OmegaConfLoader
 
 # Instantiated project hooks.
 # from binance_pipeline.hooks import ProjectHooks
@@ -28,7 +29,8 @@ from kedro.config import OmegaConfLoader
 # DATA_CATALOG_CLASS = DataCatalog
 
 # --- CORRECTED CONFIGURATION LOADER ---
-# This tells Kedro to load all .yml files from the 'parameters' directory.
+# This tells Kedro to load all .yml files from the 'parameters' directory,
+# which is necessary to find your new 'feature_engineering.yml' file.
 CONFIG_LOADER_CLASS = OmegaConfLoader
 CONFIG_LOADER_ARGS = {
     "config_patterns": {
