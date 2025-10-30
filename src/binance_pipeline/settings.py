@@ -1,5 +1,20 @@
-# This file is for configuring Kedro's core components.
-# Pipeline definitions have been moved to pipeline_registry.py.
+"""Project settings. There is no need to edit this file unless you want to change values
+from the Kedro defaults. For further information, including these default values, see
+https://kedro.readthedocs.io/en/stable/kedro_project_setup/settings.html."""
+
+from kedro.config import OmegaConfLoader
+
+# Instantiated project hooks.
+# from binance_pipeline.hooks import ProjectHooks
+# HOOKS = (ProjectHooks(),)
+
+# Installed plugins for which to disable hook auto-registration.
+# DISABLE_HOOKS_FOR_PLUGINS = ("kedro-viz",)
+
+# Class that manages storing KedroSession data.
+# from kedro.framework.session.store import ShelveStore
+# SESSION_STORE_CLASS = ShelveStore
+# SESSION_STORE_ARGS = {"path": "./sessions"}
 
 # Class that manages Kedro's library components.
 # from kedro.framework.context import KedroContext
@@ -11,3 +26,12 @@
 # Class that manages how data is loaded and saved.
 # from kedro.io import DataCatalog
 # DATA_CATALOG_CLASS = DataCatalog
+
+# --- CORRECTED CONFIGURATION LOADER ---
+# This tells Kedro to load all .yml files from the 'parameters' directory.
+CONFIG_LOADER_CLASS = OmegaConfLoader
+CONFIG_LOADER_ARGS = {
+    "config_patterns": {
+        "parameters": ["parameters/*"],
+    }
+}
