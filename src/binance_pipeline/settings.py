@@ -3,7 +3,6 @@ from the Kedro defaults. For further information, including these default values
 https://kedro.readthedocs.io/en/stable/kedro_project_setup/settings.html."""
 
 # --- CORRECT IMPORT AND CLASS NAME FOR KEDRO 0.18.x ---
-# The correct spelling is OmegaConfigLoader (with a 'g').
 from kedro.config import OmegaConfigLoader
 
 # Instantiated project hooks.
@@ -30,11 +29,12 @@ from kedro.config import OmegaConfigLoader
 # DATA_CATALOG_CLASS = DataCatalog
 
 # --- CONFIGURATION LOADER TO FIND ALL PARAMETER FILES ---
-# This is the crucial part that tells Kedro to look for and load all .yml files
-# inside your 'conf/base/parameters/' directory.
+# This tells Kedro to look for and load all .yml files inside the 'conf/base' directory,
+# correctly finding the consolidated parameters.yml.
 CONFIG_LOADER_CLASS = OmegaConfigLoader
 CONFIG_LOADER_ARGS = {
     "config_patterns": {
-        "parameters": ["parameters/*"],
+        "parameters": ["parameters.yml"], # Correctly points to the single file
+        "catalog": ["catalog.yml"],
     }
 }
