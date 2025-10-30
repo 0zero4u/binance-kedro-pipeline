@@ -31,9 +31,13 @@ trade_raw:
 # 02_intermediate
 merged_grid_15ms: {type: pandas.ParquetDataset, filepath: "data/02_intermediate/merged_grid_15ms.parquet"}
 primary_features_grid: {type: pandas.ParquetDataset, filepath: "data/02_intermediate/primary_features_grid.parquet"}
-ewma_features_grid: {type: pandas.ParquetDataset, filepath: "data/02_intermediate/ewma_features_grid.parquet"}
+
+# --- MODIFIED: Replaced old ewma_features_grid with new intelligent multi-scale dataset ---
+intelligent_multi_scale_features: {type: pandas.ParquetDataset, filepath: "data/02_intermediate/intelligent_multi_scale_features.parquet"}
+
 grid_with_bar_features: {type: pandas.ParquetDataset, filepath: "data/02_intermediate/grid_with_bar_features.parquet"}
 grid_with_microstructure_features: {type: pandas.ParquetDataset, filepath: "data/02_intermediate/grid_with_microstructure_features.parquet"}
+features_data_pre_selection: {type: pandas.ParquetDataset, filepath: "data/02_intermediate/features_data_pre_selection.parquet"}
 
 
 # 03_primary
@@ -79,6 +83,7 @@ lgbm_holdout_test_results:
   type: json.JSONDataset
   filepath: "data/07_reporting/lgbm_holdout_test_evaluation.json"
 
+# --- MODIFIED: Reporting pipeline will now use the new intermediate dataset ---
 unified_5min_traceability_report:
   type: pandas.CSVDataset
   filepath: "data/07_reporting/unified_5min_traceability_report.csv"
