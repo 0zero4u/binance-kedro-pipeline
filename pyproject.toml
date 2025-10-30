@@ -27,7 +27,7 @@ dependencies = [
     "kedro~=0.18.14",
     "pandas==2.2.2",
     "numpy==1.26.4",
-    "kedro-datasets~=2.0.0",
+    "kedro-datasets~=1.0",
     "pyarrow",
     "polars>=0.50.0", # <-- CORRECTED to a modern version available in Oct 2025
     "scipy>=1.10.0",
