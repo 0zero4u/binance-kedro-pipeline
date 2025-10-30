@@ -1,0 +1,10 @@
+# Parameters for the advanced feature selection and validation node
+feature_selection_params:
+  # Remove features where the correlation with another feature is higher than this value.
+  # Set to 1.0 to disable.
+  correlation_threshold: 0.90
+
+  # Remove features with a Variance Inflation Factor (VIF) higher than this value.
+  # VIF measures multicollinearity. A common threshold is 5 or 10.
+  # Set to a very high number (e.g., 999) to disable.
+  vif_threshold: 10.0
