@@ -52,12 +52,26 @@ class AdvancedFeatureEngine:
         return df_out
 
     def calculate_order_flow_derivatives(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Advanced order flow imbalance features."""
+        """
+        CORRECTED: Advanced order flow imbalance features.
+        Calculates velocity and acceleration on the 'short' timeframe EWMA of OFI,
+        which is guaranteed to exist in the input dataframe from a previous node.
+        """
         log.info(f"Calculating order flow derivative features for shape {df.shape}...")
         df_out = df.copy()
         
-        df_out['ofi_velocity'] = df_out['ofi_ewma_short'].diff(1)
-        df_out['ofi_acceleration'] = df_out['ofi_velocity'].diff(1)
+        # This is the correct column name created by `calculate_intelligent_multi_scale_features`
+        ofi_ewma_col = 'ofi_ewma_short' 
+        
+        if ofi_ewma_col in df_out.columns:
+            # First derivative (velocity)
+            df_out['ofi_velocity'] = df_out[ofi_ewma_col].diff(1)
+            
+            # Second derivative (acceleration)
+            df_out['ofi_acceleration'] = df_out['ofi_velocity'].diff(1)
+            log.info(f"Order flow derivatives calculated successfully.")
+        else:
+            log.warning(f"Column '{ofi_ewma_col}' not found. Skipping order flow derivative calculation.")
         
         log.info(f"Order flow derivatives complete. Final shape: {df_out.shape}")
         return df_out
