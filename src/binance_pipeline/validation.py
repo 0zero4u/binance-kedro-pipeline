@@ -36,7 +36,6 @@ def select_and_validate_features(df: pd.DataFrame, params: Dict) -> pd.DataFrame
     vif_threshold = params.get("vif_threshold", 10.0)
     features = df_out.dropna()._get_numeric_data()
     
-    # Add a constant for VIF calculation stability
     if 'const' not in features.columns:
         features['const'] = 1 
 
@@ -51,7 +50,6 @@ def select_and_validate_features(df: pd.DataFrame, params: Dict) -> pd.DataFrame
         if vif.max() < vif_threshold or len(vif_cols) <= 2:
             break
         
-        # Drop the feature with the highest VIF
         drop_col = vif.idxmax()
         vif_cols.remove(drop_col)
         vif_dropped_count += 1
@@ -77,7 +75,6 @@ def validate_features_data_logic(df: pd.DataFrame) -> pd.DataFrame:
     if key_feature not in df.columns:
         log.warning(f"Key feature '{key_feature}' not in DataFrame for validation. Skipping correlation check.")
         df.replace([np.inf, -np.inf], np.nan, inplace=True)
-        # Drop rows where any of the core price or flow features are missing
         core_features = [c for c in ['close', 'mid_price', 'taker_flow', 'returns'] if c in df.columns]
         df.dropna(subset=core_features, inplace=True)
         return df
