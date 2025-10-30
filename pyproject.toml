@@ -18,8 +18,6 @@ source = ["src", "*/site-packages"]
 [tool.coverage.run]
 source = ["binance_pipeline"]
 
-# --- FINAL, COMPATIBILITY-FOCUSED [project] SECTION for Managed Environments ---
-
 [project]
 name = "binance-kedro-pipeline"
 version = "0.18.14"
@@ -29,7 +27,7 @@ dependencies = [
     "numpy==1.26.4",
     "kedro-datasets~=1.0",
     "pyarrow",
-    "polars>=0.50.0", # <-- CORRECTED to a modern version available in Oct 2025
+    "polars>=0.50.0",
     "scipy>=1.10.0",
     "numba>=0.57.0",
     "scikit-learn>=1.3.0",
