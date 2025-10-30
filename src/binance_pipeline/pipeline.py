@@ -3,10 +3,10 @@ from functools import partial
 from .nodes import (
     create_and_merge_grids_with_polars,
     calculate_primary_grid_features,
-    calculate_ewma_features_on_grid,
+    calculate_intelligent_multi_scale_features,
     generate_bar_features,
 )
-from .validation import validate_features_data_logic
+from .validation import validate_features_data_logic, select_and_validate_features
 from .features import AdvancedFeatureEngine
 
 
@@ -14,9 +14,9 @@ def create_pipeline(**kwargs) -> Pipeline:
     
     adv_feature_engine = AdvancedFeatureEngine()
 
-    # --- HYPER-OPTIMIZED "GRID-FIRST" PIPELINE ---
+    # --- ENHANCED DATA ENGINEERING PIPELINE ---
 
-    # 1. Create, merge, and fill grids in one go with Polars
+    # 1. Create, merge, and fill grids with Polars
     create_and_merge_grids_node = node(
         func=partial(create_and_merge_grids_with_polars, rule='15ms'),
         inputs=["trade_raw", "book_raw"],
@@ -24,7 +24,7 @@ def create_pipeline(**kwargs) -> Pipeline:
         name="create_and_merge_grids_with_polars_node",
     )
     
-    # 2. Calculate primary features (spread, microprice, OFI, etc.) on the grid
+    # 2. Calculate primary features (spread, microprice, OFI, etc.)
     primary_features_node = node(
         func=calculate_primary_grid_features,
         inputs="merged_grid_15ms",
@@ -32,18 +32,18 @@ def create_pipeline(**kwargs) -> Pipeline:
         name="calculate_primary_features_node",
     )
 
-    # 3. Calculate EWMA/rolling features on the grid
-    ewma_node = node(
-        func=calculate_ewma_features_on_grid,
+    # 3. NEW: Calculate intelligent multi-scale features with reduced redundancy
+    intelligent_multi_scale_node = node(
+        func=calculate_intelligent_multi_scale_features,
         inputs="primary_features_grid",
-        outputs="ewma_features_grid",
-        name="calculate_ewma_features_node"
+        outputs="intelligent_multi_scale_features",
+        name="calculate_intelligent_multi_scale_features_node"
     )
 
-    # 4. Calculate bar-based features (RSI, Hurst) on the grid
+    # 4. Calculate bar-based features (RSI, ADX)
     bar_features_node = node(
         func=generate_bar_features,
-        inputs="ewma_features_grid",
+        inputs="intelligent_multi_scale_features",
         outputs="grid_with_bar_features",
         name="calculate_bar_features_node"
     )
@@ -60,11 +60,19 @@ def create_pipeline(**kwargs) -> Pipeline:
     order_flow_node = node(
         func=adv_feature_engine.calculate_order_flow_derivatives,
         inputs="grid_with_microstructure_features",
-        outputs="features_data_unvalidated",
+        outputs="features_data_pre_selection",
         name="add_order_flow_derivatives_node"
     )
 
-    # 7. Final logical validation
+    # 7. NEW: Advanced feature selection to remove redundancy
+    feature_selection_node = node(
+        func=select_and_validate_features,
+        inputs=["features_data_pre_selection", "params:feature_engineering.feature_selection_params"],
+        outputs="features_data_unvalidated",
+        name="select_and_validate_features_node",
+    )
+
+    # 8. Final logical validation
     logical_guardrail_node = node(
         func=validate_features_data_logic,
         inputs="features_data_unvalidated",
@@ -75,9 +83,10 @@ def create_pipeline(**kwargs) -> Pipeline:
     return Pipeline([
         create_and_merge_grids_node,
         primary_features_node,
-        ewma_node,
+        intelligent_multi_scale_node,
         bar_features_node,
         microstructure_node,
         order_flow_node,
+        feature_selection_node,
         logical_guardrail_node,
     ])
