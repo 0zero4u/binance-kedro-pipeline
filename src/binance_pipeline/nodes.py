@@ -120,19 +120,16 @@ def calculate_primary_grid_features(df: pd.DataFrame) -> pd.DataFrame:
     log.info(f"Primary grid features calculation complete. Shape: {df_out.shape}")
     return df_out
 
-def calculate_ewma_features_on_grid(df: pd.DataFrame) -> pd.DataFrame:
+def calculate_intelligent_multi_scale_features(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Calculates EWMA and rolling features with adaptive window sizes based on the
-    data's median frequency. This approach is robust to data gaps and variations
-    in grid resolution. Includes a limited forward-fill to handle minor gaps
-    without leaking future information.
+    Calculates multi-scale features using logarithmically spaced timeframes to
+    reduce redundancy and adds derivatives for richer information.
     """
-    log.info(f"Calculating ADAPTIVE EWMA features on grid for shape {df.shape}...")
+    log.info(f"Calculating INTELLIGENT multi-scale features for shape {df.shape}...")
     df_out = df.copy()
 
     time_diffs_ms = df['datetime'].diff().dt.total_seconds().mul(1000)
     median_freq_ms = time_diffs_ms.median()
-    log.info(f"Detected median grid frequency: {median_freq_ms:.2f}ms")
     
     if pd.isna(median_freq_ms) or median_freq_ms <= 0:
         log.warning("Could not detect valid frequency. Falling back to 15ms assumption.")
@@ -140,72 +137,34 @@ def calculate_ewma_features_on_grid(df: pd.DataFrame) -> pd.DataFrame:
         
     rows_per_second = 1000 / median_freq_ms
 
-    ewma_spans_rows = {
-        '5s': int(5 * rows_per_second), '15s': int(15 * rows_per_second), 
-        '1m': int(60 * rows_per_second), '3m': int(180 * rows_per_second), 
-        '15m': int(900 * rows_per_second),
+    # Use logarithmically spaced timeframes to capture different dynamics with less overlap
+    timeframe_configs = {
+        'short': int(15 * rows_per_second),   # Approx 15s
+        'medium': int(60 * rows_per_second),  # Approx 1m
+        'long': int(300 * rows_per_second),   # Approx 5m
     }
-    wall_clock_windows_rows = {'60s': int(60 * rows_per_second)}
-    log.info(f"Calculated adaptive row spans for EWMA: {ewma_spans_rows}")
+    log.info(f"Using intelligent timeframes (rows): {timeframe_configs}")
 
-    features_to_smooth = [
-        'mid_price', 'spread', 'spread_bps', 'microprice', 'taker_flow', 
-        'ofi', 'book_imbalance', 'close', 'volume'
-    ]
+    core_features = ['mid_price', 'spread_bps', 'microprice', 'taker_flow', 'ofi', 'book_imbalance', 'volume']
     
-    for feature in features_to_smooth:
-        for name, span_rows in ewma_spans_rows.items():
+    for feature in core_features:
+        for name, span_rows in timeframe_configs.items():
             if span_rows > 1:
-                df_out[f'{feature}_ewma_{name}'] = df_out[feature].ewm(span=span_rows).mean()
-            
+                ewma_col = f'{feature}_ewma_{name}'
+                df_out[ewma_col] = df_out[feature].ewm(span=span_rows).mean()
+                
+                # Add velocity (1st derivative) for dynamic features
+                if name in ['short', 'medium']:
+                    df_out[f'{ewma_col}_velo'] = df_out[ewma_col].diff()
+    
+    # Rolling sum for flow features on medium timeframe
     for feature in ['taker_flow', 'ofi']:
-        for name, window_rows in wall_clock_windows_rows.items():
-            if window_rows > 1:
-                df_out[f'{feature}_rollsum_{name}'] = df_out[feature].rolling(window=window_rows).sum()
-
-    max_fill_limit = 10
-    log.info(f"Applying limited forward-fill (limit={max_fill_limit}) to prevent data leakage...")
-    for col in df_out.select_dtypes(include=np.number).columns:
-        df_out[col] = df_out[col].ffill(limit=max_fill_limit)
+        window = timeframe_configs['medium']
+        if window > 1:
+            df_out[f'{feature}_rollsum_medium'] = df_out[feature].rolling(window=window).sum()
             
-    log.info(f"EWMA grid feature calculation complete. Total features: {len(df_out.columns)}")
+    log.info(f"Intelligent multi-scale feature calculation complete. Shape: {df_out.shape}")
     return df_out
-
-@numba.jit(nopython=True, fastmath=True)
-def _rolling_slope_numba(y: np.ndarray, window: int) -> np.ndarray:
-    n = len(y)
-    out = np.full(n, np.nan)
-    x = np.arange(window)
-    sum_x = np.sum(x)
-    sum_x2 = np.sum(x * x)
-    denominator = window * sum_x2 - sum_x * sum_x
-    if denominator == 0: return out
-    for i in range(window - 1, n):
-        y_win = y[i - window + 1 : i + 1]
-        sum_y = np.sum(y_win)
-        sum_xy = np.sum(x * y_win)
-        slope = (window * sum_xy - sum_x * sum_y) / denominator
-        out[i] = slope
-    return out
-
-@numba.jit(nopython=True, fastmath=True)
-def _rolling_rank_pct_numba(y: np.ndarray, window: int) -> np.ndarray:
-    n = len(y)
-    out = np.full(n, np.nan)
-    for i in range(window - 1, n):
-        win = y[i - window + 1 : i + 1]
-        last_val = win[-1]
-        count_le = 0
-        for val in win:
-            if val <= last_val:
-                count_le += 1
-        out[i] = count_le / window
-    return out
-
-def apply_rolling_numba(series: pd.Series, func, window: int) -> pd.Series:
-    values = series.to_numpy()
-    result = func(values, window)
-    return pd.Series(result, index=series.index, name=series.name)
 
 
 def generate_bar_features(df: pd.DataFrame) -> pd.DataFrame:
@@ -220,7 +179,6 @@ def generate_bar_features(df: pd.DataFrame) -> pd.DataFrame:
     log.info(f"Generating secondary/legacy bar features (RSI, ADX) for shape {df.shape}...")
     df = df.copy()
 
-    # Pre-emptively clean and enforce numeric types for TA-Lib compatibility.
     df.replace([np.inf, -np.inf], np.nan, inplace=True)
     required_cols = ['high', 'low', 'close']
     for col in required_cols:
@@ -230,30 +188,15 @@ def generate_bar_features(df: pd.DataFrame) -> pd.DataFrame:
     df['log_returns'] = np.log(df['close'] / df['close'].shift(1))
     
     df['rsi_14'] = ta.momentum.RSIIndicator(close=df['close'], window=14).rsi()
-    df['rsi_28'] = ta.momentum.RSIIndicator(close=df['close'], window=28).rsi()
-
-    # Use ADX as a fast proxy for trendiness.
-    log.info("  -> Calculating ADX (fast proxy for Hurst) with window 100...")
-    adx_indicator = ta.trend.ADXIndicator(
-        high=df['high'], 
-        low=df['low'], 
-        close=df['close'], 
-        window=100
-    )
-    df['adx_100'] = adx_indicator.adx()
-    
-    # Treat ADX=0 as NaN, as it indicates an undefined trend.
+    df['adx_100'] = ta.trend.ADXIndicator(
+        high=df['high'], low=df['low'], close=df['close'], window=100
+    ).adx()
     df['adx_100'].replace(0, np.nan, inplace=True)
         
-    # --- Time-based features ---
-    df['datetime'] = pd.to_datetime(df['datetime']) # Ensure datetime type
-    df['hour'] = df['datetime'].dt.hour
-    df['minute'] = df['datetime'].dt.minute
-    df['day_of_week'] = df['datetime'].dt.dayofweek
-    df['hour_sin'] = np.sin(2 * np.pi * df['hour'] / 24)
-    df['hour_cos'] = np.cos(2 * np.pi * df['hour'] / 24)
+    df['datetime'] = pd.to_datetime(df['datetime'])
+    df['hour_sin'] = np.sin(2 * np.pi * df['datetime'].dt.hour / 24)
+    df['hour_cos'] = np.cos(2 * np.pi * df['datetime'].dt.hour / 24)
 
-    # Final cleaning (now largely redundant but safe)
     df.replace([np.inf, -np.inf], np.nan, inplace=True)
     
     log.info(f"Secondary feature generation complete. Final shape: {df.shape}")
