@@ -25,11 +25,9 @@ class AdvancedFeatureEngine:
             flow_win = taker_flows[i - window + 1 : i + 1]
             returns = np.diff(p_win)
             
-            # Use the taker flow from the corresponding periods of the returns
             signed_flow_win = flow_win[1:]
             
             if len(returns) > 5 and np.std(signed_flow_win) > 1e-9:
-                # Regression: returns ~ signed_taker_flow
                 mean_flow = np.mean(signed_flow_win)
                 mean_ret = np.mean(returns)
                 num = np.sum((signed_flow_win - mean_flow) * (returns - mean_ret))
@@ -43,12 +41,10 @@ class AdvancedFeatureEngine:
         log.info(f"Calculating market microstructure features for shape {df.shape}...")
         df_out = df.copy()
         
-        # 1. Kyle's Lambda (price impact)
         df_out['kyle_lambda_50'] = self._kyle_lambda_from_flow_numba(
             df_out['close'].values, df_out['taker_flow'].values, 50
         )
         
-        # 3. Amihud illiquidity measure
         df_out['amihud_illiq'] = abs(df_out['returns']) / (df_out['volume'] * df_out['close'] + 1e-10)
         df_out['amihud_illiq_ewma_50'] = df_out['amihud_illiq'].ewm(span=50).mean()
         
@@ -60,8 +56,7 @@ class AdvancedFeatureEngine:
         log.info(f"Calculating order flow derivative features for shape {df.shape}...")
         df_out = df.copy()
         
-        # OFI acceleration (2nd derivative)
-        df_out['ofi_velocity'] = df_out['ofi_ewma_5s'].diff(1)
+        df_out['ofi_velocity'] = df_out['ofi_ewma_short'].diff(1)
         df_out['ofi_acceleration'] = df_out['ofi_velocity'].diff(1)
         
         log.info(f"Order flow derivatives complete. Final shape: {df_out.shape}")
