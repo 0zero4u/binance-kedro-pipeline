@@ -1,1 +1,59 @@
+# This is the new, consolidated parameters.yml file
 
+# Contents from arf.yml
+arf:
+  hpo_params:
+    n_trials: 15
+    search_space:
+      lambda_value:
+        type: "int"
+        low: 3
+        high: 10
+      grace_period:
+        type: "int"
+        low: 200
+        high: 800
+        step: 50
+      n_models:
+        type: "int"
+        low: 10
+        high: 25
+
+# Contents from feature_engineering.yml
+feature_engineering:
+  feature_selection_params:
+    correlation_threshold: 0.90
+    vif_threshold: 10.0
+
+# Contents from labeling.yml
+labeling:
+  labeling_params:
+    method: "fixed_pct"
+    profit_take_net_pct: 0.0008
+    stop_loss_net_pct: 0.0003
+    fee_pct: 0.00025
+    time_barrier_periods: 1800
+    vol_lookback: 50
+    vol_multiplier: 2.5
+    profit_take_mult: 2.0
+    stop_loss_mult: 1.5
+
+# Contents from lgbm.yml
+lgbm:
+  lgbm_params:
+    objective: 'multiclass'
+    num_class: 3
+    metric: 'multi_logloss'
+    boosting_type: 'gbdt'
+    n_estimators: 1000
+    random_state: 42
+    n_jobs: -1
+  training_params:
+    use_optuna: true
+    n_optuna_trials: 50
+    use_purged_kfold: true
+    n_cv_splits: 5
+    embargo_pct: 0.02
+    feature_selection:
+      enabled: true
+      top_k_features: 100
