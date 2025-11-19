@@ -10,17 +10,24 @@ import optuna
 
 log = logging.getLogger(__name__)
 
-# --- REMOVED: The entire generate_arf_features function and its helpers are gone. ---
-
 def generate_arf_hpo_configs(params: Dict[str, Any]) -> Dict[str, Any]:
     """Uses Optuna to generate a dictionary of hyperparameter configurations to test."""
     log.info(f"Generating {params['n_trials']} ARF hyperparameter configurations with Optuna...")
 
+    # Helper function to remove the 'type' key which Optuna doesn't accept
+    def clean_args(d):
+        return {k: v for k, v in d.items() if k != 'type'}
+
     def objective(trial: optuna.Trial):
+        # Clean the dictionaries before unpacking them into suggest_int
+        lambda_args = clean_args(params['search_space']['lambda_value'])
+        grace_args = clean_args(params['search_space']['grace_period'])
+        n_models_args = clean_args(params['search_space']['n_models'])
+
         config = {
-            "lambda_value": trial.suggest_int("lambda_value", **params['search_space']['lambda_value']),
-            "grace_period": trial.suggest_int("grace_period", **params['search_space']['grace_period']),
-            "n_models": trial.suggest_int("n_models", **params['search_space']['n_models']),
+            "lambda_value": trial.suggest_int("lambda_value", **lambda_args),
+            "grace_period": trial.suggest_int("grace_period", **grace_args),
+            "n_models": trial.suggest_int("n_models", **n_models_args),
             "seed": trial.number + 42
         }
         return 1.0
