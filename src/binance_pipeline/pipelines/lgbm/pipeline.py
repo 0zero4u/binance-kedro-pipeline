@@ -1,5 +1,5 @@
 from kedro.pipeline import Pipeline, node, pipeline
-from .nodes import train_lgbm_model, evaluate_model  # Import evaluate_model
+from .nodes import train_lgbm_model, evaluate_model  
 from binance_pipeline.pipelines.data_science.nodes import (
     generate_triple_barrier_labels,
     split_data
