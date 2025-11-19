@@ -17,7 +17,8 @@ def create_pipeline(**kwargs) -> Pipeline:
         # 2. Label the training data for model training and CV
         node(
             func=generate_triple_barrier_labels,
-            inputs=["train_features", "params:labeling_params"],
+            # FIX: Updated to access nested parameter correctly
+            inputs=["train_features", "params:labeling.labeling_params"], 
             outputs="labeled_data",
             name="generate_lgbm_labels_for_training_node",
         ),
@@ -31,7 +32,8 @@ def create_pipeline(**kwargs) -> Pipeline:
         # 4. Label the holdout test data (using the same parameters)
         node(
             func=generate_triple_barrier_labels,
-            inputs=["test_features", "params:labeling_params"],
+            # FIX: Updated to access nested parameter correctly
+            inputs=["test_features", "params:labeling.labeling_params"],
             outputs="test_labeled_data",
             name="generate_lgbm_labels_for_testing_node",
         ),
